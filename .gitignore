@@ -1,0 +1,9 @@
+build/
+build-*/
+out/
+dist/
+*.user
+*.suo
+*.vcxproj*
+*.sln
+*.slnx
