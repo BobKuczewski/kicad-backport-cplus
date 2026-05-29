@@ -4,14 +4,98 @@
 #include "kicad_backport/kicad_backport_util.h"
 #include "kicad_backport/kicad_backport_versions.h"
 
+#include <algorithm>
+#include <chrono>
+#include <atomic>
+#include <cstdlib>
 #include <iostream>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 
 namespace KICAD_BACKPORT
 {
+
+namespace
+{
+
+using CLOCK = std::chrono::steady_clock;
+
+long long elapsedMicros( CLOCK::time_point aStart, CLOCK::time_point aEnd )
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>( aEnd - aStart ).count();
+}
+
+
+bool timingEnabled()
+{
+#if defined( _MSC_VER )
+    char* value = nullptr;
+    size_t len = 0;
+    _dupenv_s( &value, &len, "KICAD_BACKPORT_TIMING" );
+    bool enabled = value && value[0] && std::string( value ) != "0";
+    std::free( value );
+    return enabled;
+#else
+    const char* value = std::getenv( "KICAD_BACKPORT_TIMING" );
+    return value && value[0] && std::string( value ) != "0";
+#endif
+}
+
+
+DOCUMENT loadDocumentImpl( const std::filesystem::path& aPath, long long* aReadUs,
+                           long long* aParseUs )
+{
+    DOCUMENT doc;
+    doc.Path = aPath;
+
+    CLOCK::time_point readStart = CLOCK::now();
+    std::string text = ReadTextFile( aPath );
+    CLOCK::time_point readEnd = CLOCK::now();
+
+    doc.SourceBytes = text.size();
+
+    CLOCK::time_point parseStart = CLOCK::now();
+    doc.Root = SEXPR::Parse( text );
+    CLOCK::time_point parseEnd = CLOCK::now();
+
+    doc.Kind = DetectKind( aPath, doc.Root->Head() );
+
+    if( SEXPR::NODE* version = doc.Root->ChildList( "version" ) )
+        doc.Version = version->AtomAt( 1 );
+
+    if( aReadUs )
+        *aReadUs = elapsedMicros( readStart, readEnd );
+
+    if( aParseUs )
+        *aParseUs = elapsedMicros( parseStart, parseEnd );
+
+    return doc;
+}
+
+
+void printTiming( const std::filesystem::path& aPath, long long aReadUs, long long aParseUs,
+                  long long aRulesUs, long long aFormatUs, long long aWriteUs,
+                  long long aTotalUs )
+{
+    auto ms = []( long long us )
+    {
+        return static_cast<double>( us ) / 1000.0;
+    };
+
+    std::cerr << "timing: " << aPath.string()
+              << " read=" << ms( aReadUs )
+              << "ms parse=" << ms( aParseUs )
+              << "ms rules=" << ms( aRulesUs )
+              << "ms format=" << ms( aFormatUs )
+              << "ms write=" << ms( aWriteUs )
+              << "ms total=" << ms( aTotalUs ) << "ms\n";
+}
+
+} // namespace
 
 // Dispatches subcommands and keeps all fatal errors on stderr for script use.
 int CONVERTER::Run( int aArgc, char** aArgv )
@@ -57,7 +141,7 @@ int CONVERTER::Run( int aArgc, char** aArgv )
 void CONVERTER::printUsage() const
 {
     std::cerr << "usage:\n";
-    std::cerr << "  kicad-backport convert --target-version <7.0|8.0|9.0|10.0|number> <input> <output>\n";
+    std::cerr << "  kicad-backport convert [--quiet] --target-version <7.0|8.0|9.0|10.0|number> <input> <output>\n";
     std::cerr << "  kicad-backport inspect <input>\n";
     std::cerr << "  kicad-backport version\n";
 }
@@ -65,15 +149,7 @@ void CONVERTER::printUsage() const
 
 DOCUMENT CONVERTER::loadDocument( const std::filesystem::path& aPath ) const
 {
-    DOCUMENT doc;
-    doc.Path = aPath;
-    doc.Root = SEXPR::Parse( ReadTextFile( aPath ) );
-    doc.Kind = DetectKind( aPath, doc.Root->Head() );
-
-    if( SEXPR::NODE* version = doc.Root->ChildList( "version" ) )
-        doc.Version = version->AtomAt( 1 );
-
-    return doc;
+    return loadDocumentImpl( aPath, nullptr, nullptr );
 }
 
 
@@ -103,9 +179,18 @@ void CONVERTER::ensureVersion( DOCUMENT& aDocument, const std::string& aVersion 
 
 FILE_REPORT CONVERTER::normalizeFile( const std::filesystem::path& aInput,
                                       const std::filesystem::path& aOutput,
-                                      const std::string& aTarget )
+                                      const std::string& aTarget,
+                                      bool aPrintWarnings )
 {
-    DOCUMENT doc = loadDocument( aInput );
+    const bool emitTiming = timingEnabled();
+    CLOCK::time_point totalStart = CLOCK::now();
+    long long readUs = 0;
+    long long parseUs = 0;
+    long long rulesUs = 0;
+    long long formatUs = 0;
+    long long writeUs = 0;
+
+    DOCUMENT doc = loadDocumentImpl( aInput, &readUs, &parseUs );
     FILE_REPORT report;
     report.Path = aOutput.string();
     report.Kind = KindName( doc.Kind );
@@ -125,15 +210,37 @@ FILE_REPORT CONVERTER::normalizeFile( const std::filesystem::path& aInput,
         return report;
     }
 
+    CLOCK::time_point rulesStart = CLOCK::now();
     report.Warnings = ApplyDowngradeRules( doc, target );
+    CLOCK::time_point rulesEnd = CLOCK::now();
+    rulesUs = elapsedMicros( rulesStart, rulesEnd );
+
     ensureVersion( doc, resolved );
     report.TargetVersion = doc.Version;
     report.Changed = true;
 
-    for( const std::string& warning : report.Warnings )
-        std::cerr << "warning: " << aInput.string() << ": " << warning << '\n';
+    if( aPrintWarnings )
+    {
+        for( const std::string& warning : report.Warnings )
+            std::cerr << "warning: " << aInput.string() << ": " << warning << '\n';
+    }
 
-    WriteTextFile( aOutput, SEXPR::Format( doc.Root.get() ) );
+    size_t reserveBytes = doc.SourceBytes + doc.SourceBytes / 10 + 1024;
+
+    CLOCK::time_point formatStart = CLOCK::now();
+    std::string formatted = SEXPR::Format( doc.Root.get(), reserveBytes );
+    CLOCK::time_point formatEnd = CLOCK::now();
+    formatUs = elapsedMicros( formatStart, formatEnd );
+
+    CLOCK::time_point writeStart = CLOCK::now();
+    WriteTextFile( aOutput, formatted );
+    CLOCK::time_point writeEnd = CLOCK::now();
+    writeUs = elapsedMicros( writeStart, writeEnd );
+
+    if( emitTiming )
+        printTiming( aInput, readUs, parseUs, rulesUs, formatUs, writeUs,
+                     elapsedMicros( totalStart, CLOCK::now() ) );
+
     return report;
 }
 
@@ -190,8 +297,8 @@ bool CONVERTER::isExcludedProjectDirName( const std::string& aName ) const
 }
 
 
-std::vector<std::filesystem::path> CONVERTER::copyProjectTree( const std::filesystem::path& aInput,
-                                                               const std::filesystem::path& aOutput ) const
+std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const std::filesystem::path& aInput,
+                                                            const std::filesystem::path& aOutput ) const
 {
     std::filesystem::path src = std::filesystem::absolute( aInput );
     std::filesystem::path dest = std::filesystem::absolute( aOutput );
@@ -200,7 +307,7 @@ std::vector<std::filesystem::path> CONVERTER::copyProjectTree( const std::filesy
         throw std::runtime_error( "output directory must differ from input directory" );
 
     // Copy only editable KiCad project inputs, not generated manufacturing outputs.
-    std::vector<std::filesystem::path> copied;
+    std::vector<PROJECT_COPY_ENTRY> copied;
 
     std::filesystem::recursive_directory_iterator it( src );
     const std::filesystem::recursive_directory_iterator end;
@@ -226,8 +333,13 @@ std::vector<std::filesystem::path> CONVERTER::copyProjectTree( const std::filesy
 
         std::filesystem::path out = dest / rel;
         std::filesystem::create_directories( out.parent_path() );
-        std::filesystem::copy_file( entry.path(), out, std::filesystem::copy_options::overwrite_existing );
-        copied.push_back( out );
+
+        bool isDocument = isKiCadDocumentPath( entry.path() );
+
+        if( !isDocument )
+            std::filesystem::copy_file( entry.path(), out, std::filesystem::copy_options::overwrite_existing );
+
+        copied.push_back( PROJECT_COPY_ENTRY{ entry.path(), out, isDocument } );
     }
 
     return copied;
@@ -255,6 +367,16 @@ void CONVERTER::writeReport( const std::filesystem::path& aPath,
                              const std::vector<FILE_REPORT>& aReports ) const
 {
     WriteTextFile( aPath, FormatReportsJson( aReports ) );
+}
+
+
+void printReportWarnings( const std::vector<FILE_REPORT>& aReports )
+{
+    for( const FILE_REPORT& report : aReports )
+    {
+        for( const std::string& warning : report.Warnings )
+            std::cerr << "warning: " << report.Path << ": " << warning << '\n';
+    }
 }
 
 
@@ -299,8 +421,10 @@ void CONVERTER::ensureLegacyProjectLocalSettings( const std::filesystem::path& a
 
 int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
 {
+    CLOCK::time_point convertStart = CLOCK::now();
     std::string target;
     std::string reportPath;
+    bool quiet = false;
     std::vector<std::string> positional;
 
     for( size_t i = 0; i < aArgs.size(); ++i )
@@ -309,6 +433,8 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
             target = aArgs[++i];
         else if( aArgs[i] == "--report" && i + 1 < aArgs.size() )
             reportPath = aArgs[++i];
+        else if( aArgs[i] == "--quiet" || aArgs[i] == "-q" )
+            quiet = true;
         else
             positional.push_back( aArgs[i] );
     }
@@ -327,22 +453,109 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
     if( std::filesystem::is_directory( input ) || Lower( input.extension().string() ) == ".kicad_pro" )
     {
         std::filesystem::path srcDir = std::filesystem::is_directory( input ) ? input : input.parent_path();
-        std::vector<std::filesystem::path> copied = copyProjectTree( srcDir, output );
+        std::vector<PROJECT_COPY_ENTRY> copied = copyProjectTree( srcDir, output );
+        std::vector<PROJECT_COPY_ENTRY> documents;
 
-        for( const std::filesystem::path& path : copied )
+        for( const PROJECT_COPY_ENTRY& entry : copied )
         {
-            if( isKiCadDocumentPath( path ) )
-                reports.push_back( normalizeFile( path, path, target ) );
+            if( entry.IsDocument )
+                documents.push_back( entry );
         }
+
+        if( documents.size() <= 1 )
+        {
+            for( const PROJECT_COPY_ENTRY& entry : documents )
+                reports.push_back( normalizeFile( entry.Source, entry.Output, target, false ) );
+        }
+        else
+        {
+            reports.resize( documents.size() );
+            std::vector<size_t> processOrder( documents.size() );
+
+            for( size_t i = 0; i < processOrder.size(); ++i )
+                processOrder[i] = i;
+
+            std::sort( processOrder.begin(), processOrder.end(),
+                       [&]( size_t aLeft, size_t aRight )
+                       {
+                           std::error_code leftError;
+                           std::error_code rightError;
+                           uintmax_t leftSize = std::filesystem::file_size( documents[aLeft].Source,
+                                                                             leftError );
+                           uintmax_t rightSize = std::filesystem::file_size( documents[aRight].Source,
+                                                                              rightError );
+
+                           if( leftError )
+                               leftSize = 0;
+
+                           if( rightError )
+                               rightSize = 0;
+
+                           return leftSize > rightSize;
+                       } );
+
+            std::atomic<size_t> nextIndex{ 0 };
+            std::mutex errorMutex;
+            std::exception_ptr firstError;
+            unsigned int hardwareThreads = std::thread::hardware_concurrency();
+            size_t preferredThreads = hardwareThreads == 0 ? 4 : std::max<size_t>( 2, hardwareThreads / 2 );
+            size_t workerCount = std::min<size_t>( documents.size(),
+                    std::min<size_t>( 4, preferredThreads ) );
+
+            std::vector<std::thread> workers;
+            workers.reserve( workerCount );
+
+            for( size_t worker = 0; worker < workerCount; ++worker )
+            {
+                workers.emplace_back(
+                        [&, target]()
+                        {
+                            while( true )
+                            {
+                                size_t orderIndex = nextIndex.fetch_add( 1 );
+
+                                if( orderIndex >= processOrder.size() )
+                                    return;
+
+                                size_t index = processOrder[orderIndex];
+
+                                try
+                                {
+                                    const PROJECT_COPY_ENTRY& entry = documents[index];
+                                    reports[index] = normalizeFile( entry.Source, entry.Output,
+                                                                    target, false );
+                                }
+                                catch( ... )
+                                {
+                                    std::lock_guard<std::mutex> lock( errorMutex );
+
+                                    if( !firstError )
+                                        firstError = std::current_exception();
+
+                                    return;
+                                }
+                            }
+                        } );
+            }
+
+            for( std::thread& worker : workers )
+                worker.join();
+
+            if( firstError )
+                std::rethrow_exception( firstError );
+        }
+
+        if( !quiet )
+            printReportWarnings( reports );
 
         std::string suffix = TargetVersionSuffix( target );
 
         if( suffix == "V7" || suffix == "V8" )
         {
-            for( const std::filesystem::path& path : copied )
+            for( const PROJECT_COPY_ENTRY& entry : copied )
             {
-                if( Lower( path.extension().string() ) == ".kicad_pcb" )
-                    ensureLegacyProjectLocalSettings( ReplaceExtension( path, ".kicad_prl" ), suffix );
+                if( Lower( entry.Output.extension().string() ) == ".kicad_pcb" )
+                    ensureLegacyProjectLocalSettings( ReplaceExtension( entry.Output, ".kicad_prl" ), suffix );
             }
         }
     }
@@ -351,7 +564,7 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
         if( std::filesystem::absolute( input ) == std::filesystem::absolute( output ) )
             throw std::runtime_error( "output file must differ from input file" );
 
-        reports.push_back( normalizeFile( input, output, target ) );
+        reports.push_back( normalizeFile( input, output, target, !quiet ) );
 
         std::string suffix = TargetVersionSuffix( target );
 
@@ -371,6 +584,12 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
     }
 
     std::cout << "wrote " << output.string() << "; normalized " << changed << " KiCad file(s)\n";
+
+    if( timingEnabled() )
+        std::cerr << "timing: convert total="
+                  << static_cast<double>( elapsedMicros( convertStart, CLOCK::now() ) ) / 1000.0
+                  << "ms\n";
+
     return 0;
 }
 

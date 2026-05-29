@@ -2,6 +2,7 @@
 
 #include "kicad_backport/sexpr.h"
 
+#include <cstddef>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -30,6 +31,7 @@ struct DOCUMENT
     std::unique_ptr<SEXPR::NODE> Root;
     KIND                      Kind = KIND::UNKNOWN;
     std::string               Version;
+    size_t                    SourceBytes = 0;
 };
 
 // Per-file result used by convert and inspect commands.
@@ -43,11 +45,18 @@ struct FILE_REPORT
     std::vector<std::string> Warnings;
 };
 
+struct PROJECT_COPY_ENTRY
+{
+    std::filesystem::path Source;
+    std::filesystem::path Output;
+    bool                  IsDocument = false;
+};
+
 // Command-line front end for project/file inspection and downgrade conversion.
 class CONVERTER
 {
 public:
-    static constexpr const char* VERSION = "0.1.1";
+    static constexpr const char* VERSION = "0.2.0";
 
     int Run( int aArgc, char** aArgv );
 
@@ -61,7 +70,8 @@ private:
     DOCUMENT loadDocument( const std::filesystem::path& aPath ) const;
     FILE_REPORT normalizeFile( const std::filesystem::path& aInput,
                                const std::filesystem::path& aOutput,
-                               const std::string& aTarget );
+                               const std::string& aTarget,
+                               bool aPrintWarnings = true );
     std::vector<FILE_REPORT> inspectPath( const std::filesystem::path& aPath ) const;
 
     void ensureVersion( DOCUMENT& aDocument, const std::string& aVersion ) const;
@@ -74,8 +84,8 @@ private:
     bool isKiCadDocumentPath( const std::filesystem::path& aPath ) const;
     bool isKiCadProjectFilePath( const std::filesystem::path& aPath ) const;
     bool isExcludedProjectDirName( const std::string& aName ) const;
-    std::vector<std::filesystem::path> copyProjectTree( const std::filesystem::path& aInput,
-                                                        const std::filesystem::path& aOutput ) const;
+    std::vector<PROJECT_COPY_ENTRY> copyProjectTree( const std::filesystem::path& aInput,
+                                                     const std::filesystem::path& aOutput ) const;
 
     void writeReport( const std::filesystem::path& aPath,
                       const std::vector<FILE_REPORT>& aReports ) const;

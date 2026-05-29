@@ -281,148 +281,152 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
 
     case KIND::BOARD:
     case KIND::FOOTPRINT:
+    {
         // PCB and footprint syntax use the same graphical and pad-level rewrites.
         append( removeIntroduced( aDocument.Root.get(), aTarget, boardRules() ) );
 
-        applyWhen( aTarget < 20260410, [&]() { return removeNodesContainingChild( aDocument.Root.get(), "model", "type" ); },
-                   "removed typed/extruded 3D model blocks" );
+        std::vector<CHILD_REMOVAL_RULE> childRemovalRules;
+        std::vector<std::string> childRemovalWarnings;
 
-        applyWhen( aTarget < 20260513, [&]() { return replaceAtomValuesInParents( aDocument.Root.get(), { "mode" }, "thieving", "polygon" ); },
-                   "downgraded copper thieving fill modes to polygon fill" );
-
-        applyWhen( aTarget >= 20220225, [&]() { return removeChildrenFromParents( aDocument.Root.get(), { "footprint", "module" }, { "tedit" } ); },
-                   "removed obsolete footprint tedit fields" );
-
-        applyWhen( aTarget >= 20200628, [&]() { return removeChildrenFromParents( aDocument.Root.get(), { "setup" }, { "visible_elements" } ); },
-                   "removed obsolete board visible_elements settings" );
-
-        applyWhen( aTarget < 20240703, [&]() { return downgradeUserLayerTypes( aDocument.Root.get() ); },
-                   "removed user-layer type qualifiers" );
-
-        // Static parent lists are built only when the target needs this rewrite.
-        if( aTarget < 20241010 )
+        auto addChildRemoval = [&]( bool aCondition, std::set<std::string> aParents,
+                                    std::set<std::string> aChildren,
+                                    const std::string& aWarning )
         {
-            static const std::set<std::string> graphicParents = {
-                "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly",
-                "fp_line", "fp_arc", "fp_circle", "fp_rect", "fp_poly"
-            };
+            if( !aCondition )
+                return;
 
-            int n = removeChildrenFromParents( aDocument.Root.get(), graphicParents,
-                                               { "solder_mask_margin" } );
-            warnIfChanged( n, "removed graphic solder_mask_margin fields" );
+            childRemovalRules.push_back( CHILD_REMOVAL_RULE{ std::move( aParents ),
+                                                              std::move( aChildren ) } );
+            childRemovalWarnings.push_back( aWarning );
+        };
+
+        static const std::set<std::string> graphicParents = {
+            "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly",
+            "fp_line", "fp_arc", "fp_circle", "fp_rect", "fp_poly"
+        };
+
+        static const std::set<std::string> connectedGraphicParents = {
+            "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_curve",
+            "fp_line", "fp_arc", "fp_circle", "fp_rect", "fp_poly", "fp_curve"
+        };
+
+        addChildRemoval( aTarget >= 20220225, { "footprint", "module" }, { "tedit" },
+                         "removed obsolete footprint tedit fields" );
+        addChildRemoval( aTarget >= 20200628, { "setup" }, { "visible_elements" },
+                         "removed obsolete board visible_elements settings" );
+        addChildRemoval( aTarget < 20241010, graphicParents, { "solder_mask_margin" },
+                         "removed graphic solder_mask_margin fields" );
+        addChildRemoval( aTarget < 20241030, { "style" }, { "arrow_direction" },
+                         "removed dimension arrow direction fields" );
+        addChildRemoval( aTarget < 20241009, { "zone" }, { "placement" },
+                         "removed zone placement fields" );
+        addChildRemoval( aTarget < 20241007, { "segment", "arc" },
+                         { "solder_mask_margin", "solder_mask_layer" },
+                         "removed track soldermask layer/margin fields" );
+        addChildRemoval( aTarget < 20240617, { "table_cell" }, { "angle" },
+                         "removed PCB table cell angle fields" );
+        addChildRemoval( aTarget < 20231212, { "model" }, { "hide" },
+                         "removed legacy-incompatible 3D model hide fields" );
+        addChildRemoval( aTarget < 20230730, connectedGraphicParents, { "net" },
+                         "removed PCB graphic shape net connectivity fields" );
+        addChildRemoval( aTarget < 20240108, { "group" }, { "locked" },
+                         "removed group locked fields" );
+        addChildRemoval( aTarget < 20250324, { "footprint" },
+                         { "duplicate_pad_numbers_are_jumpers", "jumper_pad_groups" },
+                         "removed footprint jumper pad fields" );
+        addChildRemoval( aTarget < 20250210, { "gr_text_box", "fp_text_box" },
+                         { "knockout" }, "removed PCB text box knockout fields" );
+        addChildRemoval( aTarget <= 20241229, { "font" }, { "face" },
+                         "removed PCB font face fields" );
+        addChildRemoval( aTarget <= 20221018, { "pad", "via" },
+                         { "remove_unused_layers" },
+                         "removed pad/via remove_unused_layers fields" );
+
+        BOARD_FAST_COUNTS boardFastCounts;
+
+        {
+            BOARD_FAST_OPTIONS options;
+            options.DimensionBoolFields = aTarget < 20241030;
+            options.BoardPresenceBoolFields = aTarget < 20231212;
+            options.RemoveUnlocked = aTarget < 20231212;
+            options.PlotParamBools = aTarget < 20230924;
+            options.ShapeFillNoToNone = aTarget < 20230924;
+            options.FontStyleLists = aTarget < 20240108;
+            options.AttrDnpAtoms = aTarget <= 20221018;
+            options.ShapeHatchFills = aTarget < 20250222;
+            options.ZoneFilledAreasThickness = aTarget < 20250210;
+            options.RemoveLocked = aTarget <= 20221018;
+            options.FreeViaPresence = aTarget <= 20221018;
+            options.RemoveTypedModels = aTarget < 20260410;
+            options.ReplaceThievingMode = aTarget < 20260513;
+            options.UserLayerTypes = aTarget < 20240703;
+            options.RemoveRootGeneratorVersion = aTarget < 20231014;
+            options.RenameUuidToTstamp = aTarget < 20231231;
+            options.RenameGroupGeneratedUuidToId = aTarget < 20231231;
+            options.DowngradePCBFootprintFields = aTarget < 20230620;
+
+            boardFastCounts = applyBoardFastVisitor( aDocument.Root.get(), options,
+                                                     childRemovalRules );
+
+            for( size_t i = 0; i < boardFastCounts.ChildRemovalRules.size(); ++i )
+                warnIfChanged( boardFastCounts.ChildRemovalRules[i], childRemovalWarnings[i] );
+
+            warnIfChanged( boardFastCounts.DimensionBoolFields,
+                           "downgraded dimension boolean fields to legacy atom syntax" );
+            warnIfChanged( boardFastCounts.BoardPresenceBoolFields,
+                           "downgraded board/footprint boolean locked/hide fields" );
+            warnIfChanged( boardFastCounts.RemovedUnlocked,
+                           "removed PCB text keep-upright unlock fields" );
+            warnIfChanged( boardFastCounts.PlotParamBools,
+                           "downgraded pcbplotparams boolean values" );
+            warnIfChanged( boardFastCounts.ShapeFillNoToNone,
+                           "downgraded PCB shape fill no values to none" );
+            warnIfChanged( boardFastCounts.FontStyleLists,
+                           "downgraded PCB font bold/italic bool fields" );
+            warnIfChanged( boardFastCounts.RemovedAttrDnpAtoms,
+                           "removed footprint dnp attributes" );
+            warnIfChanged( boardFastCounts.ShapeHatchFills,
+                           "downgraded PCB shape hatch fills" );
+            warnIfChanged( boardFastCounts.ZoneFilledAreasThickness,
+                           "tagged cached zone fills as polygon fills" );
+            warnIfChanged( boardFastCounts.RemovedLocked,
+                           "removed legacy-incompatible locked fields" );
+            warnIfChanged( boardFastCounts.FreeViaPresence,
+                           "downgraded free via fields" );
         }
 
-        // Dimension style changes share one format cutoff.
-        if( aTarget < 20241030 )
-        {
-            int n = downgradeBoolListsToAtoms( aDocument.Root.get(),
-                                               { "suppress_zeroes", "keep_text_aligned" } );
-            warnIfChanged( n, "downgraded dimension boolean fields to legacy atom syntax" );
+        warnIfChanged( boardFastCounts.RemovedTypedModels,
+                       "removed typed/extruded 3D model blocks" );
 
-            n = removeChildrenFromParents( aDocument.Root.get(), { "style" }, { "arrow_direction" } );
-            warnIfChanged( n, "removed dimension arrow direction fields" );
-        }
+        warnIfChanged( boardFastCounts.ReplacedThievingMode,
+                       "downgraded copper thieving fill modes to polygon fill" );
 
-        applyWhen( aTarget < 20241009, [&]() { return removeChildrenFromParents( aDocument.Root.get(), { "zone" }, { "placement" } ); },
-                   "removed zone placement fields" );
-
-        applyWhen( aTarget < 20241007,
-                   [&]()
-                   {
-                       return removeChildrenFromParents( aDocument.Root.get(), { "segment", "arc" },
-                                               { "solder_mask_margin", "solder_mask_layer" } );
-                   },
-                   "removed track soldermask layer/margin fields" );
-
-        applyWhen( aTarget < 20240617, [&]() { return removeChildrenFromParents( aDocument.Root.get(), { "table_cell" }, { "angle" } ); },
-                   "removed PCB table cell angle fields" );
+        warnIfChanged( boardFastCounts.UserLayerTypes,
+                       "removed user-layer type qualifiers" );
 
         if( aTarget < 20250228 )
         {
-            int n = downgradeTentingToLegacyAtoms( aDocument.Root.get() );
-            warnIfChanged( n, "downgraded tenting front/back bool lists to legacy atom syntax" );
+            if( aTarget >= 20240609 )
+            {
+                int n = downgradeTentingToLegacyAtoms( aDocument.Root.get() );
+                warnIfChanged( n, "downgraded tenting front/back bool lists to legacy atom syntax" );
+            }
 
-            n = removeDescendantsByHead( aDocument.Root.get(), { "covering", "plugging", "filling", "capping" } );
-            warnIfChanged( n, "removed IPC-4761 via protection fields" );
+            // IPC-4761 child fields are already removed by the broad feature gate above.
         }
 
-        // Older PCB syntax represents these booleans as bare presence atoms.
-        if( aTarget < 20231212 )
-        {
-            int n = downgradeBooleanPresenceNodes( aDocument.Root.get(), { "locked", "hide" } );
-            warnIfChanged( n, "downgraded board/footprint boolean locked/hide fields" );
+        warnIfChanged( boardFastCounts.RemovedRootGeneratorVersion,
+                       "removed board/footprint generator_version fields" );
 
-            n = removeDescendantsByHead( aDocument.Root.get(), { "unlocked" } );
-            warnIfChanged( n, "removed PCB text keep-upright unlock fields" );
+        warnIfChanged( boardFastCounts.PCBFootprintFields,
+                       "downgraded PCB footprint fields to legacy storage" );
 
-            n = removeChildrenFromParents( aDocument.Root.get(), { "model" }, { "hide" } );
-            warnIfChanged( n, "removed legacy-incompatible 3D model hide fields" );
-        }
+        warnIfChanged( boardFastCounts.RenamedUuidToTstamp,
+                       "renamed footprint uuid fields back to legacy tstamp" );
+        warnIfChanged( boardFastCounts.RenamedGroupGeneratedUuidToId,
+                       "renamed board group/generated uuid fields back to id" );
 
-        applyWhen( aTarget < 20231014, [&]() { return removeDirectChildrenByHead( aDocument.Root.get(), "generator_version" ); },
-                   "removed board/footprint generator_version fields" );
-
-        if( aTarget < 20230924 )
-        {
-            int n = downgradePCBPlotParamsBoolsToTrueFalse( aDocument.Root.get() );
-            warnIfChanged( n, "downgraded pcbplotparams boolean values" );
-
-            n = downgradePCBShapeFillNoToNone( aDocument.Root.get() );
-            warnIfChanged( n, "downgraded PCB shape fill no values to none" );
-        }
-
-        // Graphic net ownership is unsupported before this format version.
-        if( aTarget < 20230730 )
-        {
-            static const std::set<std::string> graphicParents = {
-                "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_curve",
-                "fp_line", "fp_arc", "fp_circle", "fp_rect", "fp_poly", "fp_curve"
-            };
-
-            int n = removeChildrenFromParents( aDocument.Root.get(), graphicParents, { "net" } );
-            warnIfChanged( n, "removed PCB graphic shape net connectivity fields" );
-        }
-
-        if( aTarget < 20240108 )
-        {
-            int n = removeChildrenFromParents( aDocument.Root.get(), { "group" }, { "locked" } );
-            warnIfChanged( n, "removed group locked fields" );
-
-            n = downgradeFontStyleListsToAtoms( aDocument.Root.get() );
-            warnIfChanged( n, "downgraded PCB font bold/italic bool fields" );
-        }
-
-        applyWhen( aTarget < 20230620, [&]() { return downgradePCBFootprintFields( aDocument.Root.get() ); },
-                   "downgraded PCB footprint fields to legacy storage" );
-
-        // UUID rename is scoped so unrelated ids are not touched.
-        if( aTarget < 20231231 )
-        {
-            static const std::set<std::string> tstampParents = {
-                "footprint", "module", "pad", "via", "segment", "arc", "zone",
-                "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_curve", "gr_text",
-                "fp_line", "fp_arc", "fp_circle", "fp_rect", "fp_poly", "fp_curve", "fp_text"
-            };
-
-            int n = renameChildHeadInParents( aDocument.Root.get(), tstampParents, "uuid", "tstamp" );
-            warnIfChanged( n, "renamed footprint uuid fields back to legacy tstamp" );
-
-            n = renameChildHeadInParents( aDocument.Root.get(), { "group", "generated" }, "uuid", "id" );
-            warnIfChanged( n, "renamed board group/generated uuid fields back to id" );
-        }
-
-        applyWhen( aTarget < 20250324,
-                   [&]()
-                   {
-                       return removeChildrenFromParents( aDocument.Root.get(), { "footprint" },
-                                               { "duplicate_pad_numbers_are_jumpers", "jumper_pad_groups" } );
-                   },
-                   "removed footprint jumper pad fields" );
-
-        applyWhen( aTarget <= 20221018, [&]() { return removeAtomsFromHeadedLists( aDocument.Root.get(), { "attr" }, { "dnp" } ); },
-                   "removed footprint dnp attributes" );
-
-        applyWhen( aTarget < 20250309,
+        applyWhen( aTarget < 20250309 && aTarget >= 20240928,
                    [&]()
                    {
                        return removeChildrenFromParents( aDocument.Root.get(), { "placement" },
@@ -430,55 +434,19 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                    },
                    "removed rule_area component_class placement sources" );
 
-        applyWhen( aTarget < 20250222, [&]() { return downgradePCBShapeHatchFills( aDocument.Root.get() ); },
-                   "downgraded PCB shape hatch fills" );
-
-        applyWhen( aTarget < 20250210,
-                   [&]()
-                   {
-                       return removeChildrenFromParents( aDocument.Root.get(), { "gr_text_box", "fp_text_box" },
-                                               { "knockout" } );
-                   },
-                   "removed PCB text box knockout fields" );
-
-        applyWhen( aTarget < 20250210, [&]() { return ensureZoneFilledAreasThickness( aDocument.Root.get() ); },
-                   "tagged cached zone fills as polygon fills" );
-
-        applyWhen( aTarget <= 20241229,
-                   [&]()
-                   {
-                       return removeChildrenFromParents( aDocument.Root.get(), { "font" }, { "face" } );
-                   },
-                   "removed PCB font face fields" );
-
         // KiCad 7 PCB syntax needs several legacy cleanups at the same cutoff.
         if( aTarget <= 20221018 )
         {
-            int n = removeChildrenFromParents( aDocument.Root.get(), { "pad", "via" },
-                                               { "remove_unused_layers" } );
-            warnIfChanged( n, "removed pad/via remove_unused_layers fields" );
-
-            n = downgradeDimensionsToText( aDocument.Root.get() );
+            int n = downgradeDimensionsToText( aDocument.Root.get() );
             warnIfChanged( n, "downgraded PCB dimensions to legacy text annotations" );
-
-            n = removeDescendantsByHead( aDocument.Root.get(), { "locked" } );
-            warnIfChanged( n, "removed legacy-incompatible locked fields" );
-
-            n = downgradeBooleanPresenceNodes( aDocument.Root.get(), { "free" } );
-            warnIfChanged( n, "downgraded free via fields" );
         }
 
-        applyWhen( aTarget < 20251101,
-                   [&]()
-                   {
-                       return removeChildrenFromParents( aDocument.Root.get(), { "pad", "via" },
-                                               { "front_post_machining", "back_post_machining" } );
-                   },
-                   "removed pad/via post-machining fields" );
+        // Pad/via post-machining fields are already removed by the broad feature gate above.
 
         applyWhen( aTarget < 20251028, [&]() { return downgradeBoardNetNamesToCodes( aDocument.Root.get() ); },
                    "added legacy netcodes to board net references" );
         break;
+    }
 
     case KIND::WORKSHEET:
         if( aTarget < 20220228 )

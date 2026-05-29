@@ -18,10 +18,65 @@ struct FEATURE_RULE
     std::string              Reason;     // Warning text when older targets require removal.
 };
 
+struct CHILD_REMOVAL_RULE
+{
+    std::set<std::string> Parents;
+    std::set<std::string> Children;
+};
+
+struct BOARD_FAST_OPTIONS
+{
+    bool DimensionBoolFields = false;
+    bool BoardPresenceBoolFields = false;
+    bool RemoveUnlocked = false;
+    bool PlotParamBools = false;
+    bool ShapeFillNoToNone = false;
+    bool FontStyleLists = false;
+    bool AttrDnpAtoms = false;
+    bool ShapeHatchFills = false;
+    bool ZoneFilledAreasThickness = false;
+    bool RemoveLocked = false;
+    bool FreeViaPresence = false;
+    bool RemoveTypedModels = false;
+    bool ReplaceThievingMode = false;
+    bool UserLayerTypes = false;
+    bool RemoveRootGeneratorVersion = false;
+    bool RenameUuidToTstamp = false;
+    bool RenameGroupGeneratedUuidToId = false;
+    bool DowngradePCBFootprintFields = false;
+};
+
+struct BOARD_FAST_COUNTS
+{
+    std::vector<int> ChildRemovalRules;
+    int DimensionBoolFields = 0;
+    int BoardPresenceBoolFields = 0;
+    int RemovedUnlocked = 0;
+    int PlotParamBools = 0;
+    int ShapeFillNoToNone = 0;
+    int FontStyleLists = 0;
+    int RemovedAttrDnpAtoms = 0;
+    int ShapeHatchFills = 0;
+    int ZoneFilledAreasThickness = 0;
+    int RemovedLocked = 0;
+    int FreeViaPresence = 0;
+    int RemovedTypedModels = 0;
+    int ReplacedThievingMode = 0;
+    int UserLayerTypes = 0;
+    int RemovedRootGeneratorVersion = 0;
+    int RenamedUuidToTstamp = 0;
+    int RenamedGroupGeneratedUuidToId = 0;
+    int PCBFootprintFields = 0;
+};
+
 // Generic tree rewrites used by version-specific downgrade rules.
 int removeDescendantsByHead( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads );
 int removeChildrenFromParents( SEXPR::NODE* aRoot, const std::set<std::string>& aParents,
                                const std::set<std::string>& aChildren );
+std::vector<int> removeChildrenFromParentsBatch( SEXPR::NODE* aRoot,
+                                                 const std::vector<CHILD_REMOVAL_RULE>& aRules );
+BOARD_FAST_COUNTS applyBoardFastVisitor( SEXPR::NODE* aRoot, const BOARD_FAST_OPTIONS& aOptions,
+                                         const std::vector<CHILD_REMOVAL_RULE>& aChildRemovalRules = {} );
 int removeDirectChildrenByHead( SEXPR::NODE* aRoot, const std::string& aHead );
 int renameChildHeadInParents( SEXPR::NODE* aRoot, const std::set<std::string>& aParents,
                               const std::string& aFrom, const std::string& aTo );

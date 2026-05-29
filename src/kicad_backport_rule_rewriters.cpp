@@ -2,16 +2,85 @@
 #include "kicad_backport/kicad_backport_util.h"
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cctype>
 #include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
+#include <unordered_map>
 
 
 namespace KICAD_BACKPORT::RULE_REWRITERS
 {
+
+bool parseKiCadBool( std::string_view aValue, bool aDefault );
+std::unique_ptr<SEXPR::NODE> propertyNode( const std::string& aName, const std::string& aValue );
+std::unique_ptr<SEXPR::NODE> pcbPropertyToLegacyFPText( std::unique_ptr<SEXPR::NODE> aProperty,
+                                                        const std::string& aKind );
+
+namespace
+{
+
+bool containsString( const std::set<std::string>& aSet, std::string_view aValue )
+{
+    for( const std::string& item : aSet )
+    {
+        if( item == aValue )
+            return true;
+    }
+
+    return false;
+}
+
+
+size_t findRuleForHead( const std::vector<std::pair<std::string, size_t>>& aHeads,
+                        std::string_view aHead )
+{
+    for( const auto& item : aHeads )
+    {
+        if( item.first == aHead )
+            return item.second;
+    }
+
+    return static_cast<size_t>( -1 );
+}
+
+
+bool containsHead( const std::vector<std::pair<std::string, size_t>>& aHeads,
+                   std::string_view aHead )
+{
+    return findRuleForHead( aHeads, aHead ) != static_cast<size_t>( -1 );
+}
+
+
+char asciiLower( char aChar )
+{
+    if( aChar >= 'A' && aChar <= 'Z' )
+        return static_cast<char>( aChar - 'A' + 'a' );
+
+    return aChar;
+}
+
+
+bool equalsNoCase( std::string_view aLeft, std::string_view aRight )
+{
+    if( aLeft.size() != aRight.size() )
+        return false;
+
+    for( size_t i = 0; i < aLeft.size(); ++i )
+    {
+        if( asciiLower( aLeft[i] ) != asciiLower( aRight[i] ) )
+            return false;
+    }
+
+    return true;
+}
+
+} // namespace
 
 // Removes any subtree whose head token is not accepted by the target parser.
 int removeDescendantsByHead( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads )
@@ -20,24 +89,90 @@ int removeDescendantsByHead( SEXPR::NODE* aRoot, const std::set<std::string>& aH
         return 0;
 
     int removed = 0;
-    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+    bool directRemoval = false;
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
     {
         if( !child )
             continue;
 
-        if( !child->IsAtom() && aHeads.count( child->Head() ) )
+        if( !child->IsAtom() && containsString( aHeads, child->HeadView() ) )
         {
             ++removed;
+            directRemoval = true;
             continue;
         }
 
         removed += removeDescendantsByHead( child.get(), aHeads );
-        kept.push_back( std::move( child ) );
     }
 
-    aRoot->Children = std::move( kept );
+    if( directRemoval )
+    {
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+        kept.reserve( aRoot->Children.size() );
+
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( child && !child->IsAtom() && containsString( aHeads, child->HeadView() ) )
+                continue;
+
+            kept.push_back( std::move( child ) );
+        }
+
+        aRoot->Children = std::move( kept );
+    }
+
+    return removed;
+}
+
+
+int removeDescendantsByRuleHeads( SEXPR::NODE* aRoot,
+                                  const std::vector<std::pair<std::string, size_t>>& aHeadToRule,
+                                  std::vector<int>& aCounts )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int removed = 0;
+    bool directRemoval = false;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( !child )
+            continue;
+
+        if( !child->IsAtom() )
+        {
+            size_t ruleIndex = findRuleForHead( aHeadToRule, child->HeadView() );
+
+            if( ruleIndex != static_cast<size_t>( -1 ) )
+            {
+                ++removed;
+                ++aCounts[ruleIndex];
+                directRemoval = true;
+                continue;
+            }
+        }
+
+        removed += removeDescendantsByRuleHeads( child.get(), aHeadToRule, aCounts );
+    }
+
+    if( directRemoval )
+    {
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+        kept.reserve( aRoot->Children.size() );
+
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( child && !child->IsAtom() && containsHead( aHeadToRule, child->HeadView() ) )
+                continue;
+
+            kept.push_back( std::move( child ) );
+        }
+
+        aRoot->Children = std::move( kept );
+    }
+
     return removed;
 }
 
@@ -50,22 +185,34 @@ int removeChildrenFromParents( SEXPR::NODE* aRoot, const std::set<std::string>& 
 
     int removed = 0;
 
-    if( aParents.count( aRoot->Head() ) )
+    if( containsString( aParents, aRoot->HeadView() ) )
     {
-        std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+        bool directRemoval = false;
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
-            if( child && !child->IsAtom() && aChildren.count( child->Head() ) )
+            if( child && !child->IsAtom() && containsString( aChildren, child->HeadView() ) )
             {
                 ++removed;
-                continue;
+                directRemoval = true;
             }
-
-            kept.push_back( std::move( child ) );
         }
 
-        aRoot->Children = std::move( kept );
+        if( directRemoval )
+        {
+            std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+            kept.reserve( aRoot->Children.size() );
+
+            for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+            {
+                if( child && !child->IsAtom() && containsString( aChildren, child->HeadView() ) )
+                    continue;
+
+                kept.push_back( std::move( child ) );
+            }
+
+            aRoot->Children = std::move( kept );
+        }
     }
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
@@ -75,27 +222,553 @@ int removeChildrenFromParents( SEXPR::NODE* aRoot, const std::set<std::string>& 
 }
 
 
+std::vector<int> removeChildrenFromParentsBatch( SEXPR::NODE* aRoot,
+                                                 const std::vector<CHILD_REMOVAL_RULE>& aRules )
+{
+    std::vector<int> counts( aRules.size(), 0 );
+
+    if( !aRoot || aRoot->IsAtom() || aRules.empty() )
+        return counts;
+
+    auto visit = [&]( auto&& self, SEXPR::NODE* node ) -> void
+    {
+        if( !node || node->IsAtom() )
+            return;
+
+        std::vector<size_t> active;
+        std::string_view head = node->HeadView();
+
+        for( size_t i = 0; i < aRules.size(); ++i )
+        {
+            if( containsString( aRules[i].Parents, head ) )
+                active.push_back( i );
+        }
+
+        bool directRemoval = false;
+
+        if( !active.empty() )
+        {
+            for( std::unique_ptr<SEXPR::NODE>& child : node->Children )
+            {
+                if( !child || child->IsAtom() )
+                    continue;
+
+                std::string_view childHead = child->HeadView();
+
+                for( size_t ruleIndex : active )
+                {
+                    if( containsString( aRules[ruleIndex].Children, childHead ) )
+                    {
+                        ++counts[ruleIndex];
+                        directRemoval = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if( directRemoval )
+        {
+            std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( node->Children.get_allocator() );
+            kept.reserve( node->Children.size() );
+
+            for( std::unique_ptr<SEXPR::NODE>& child : node->Children )
+            {
+                bool remove = false;
+
+                if( child && !child->IsAtom() )
+                {
+                    std::string_view childHead = child->HeadView();
+
+                    for( size_t ruleIndex : active )
+                    {
+                        if( containsString( aRules[ruleIndex].Children, childHead ) )
+                        {
+                            remove = true;
+                            break;
+                        }
+                    }
+                }
+
+                if( !remove )
+                    kept.push_back( std::move( child ) );
+            }
+
+            node->Children = std::move( kept );
+        }
+
+        for( std::unique_ptr<SEXPR::NODE>& child : node->Children )
+            self( self, child.get() );
+    };
+
+    visit( visit, aRoot );
+    return counts;
+}
+
+
+BOARD_FAST_COUNTS applyBoardFastVisitor( SEXPR::NODE* aRoot, const BOARD_FAST_OPTIONS& aOptions,
+                                         const std::vector<CHILD_REMOVAL_RULE>& aChildRemovalRules )
+{
+    BOARD_FAST_COUNTS counts;
+    counts.ChildRemovalRules.assign( aChildRemovalRules.size(), 0 );
+
+    if( !aRoot || aRoot->IsAtom() )
+        return counts;
+
+    static const std::set<std::string> shapeHeads = {
+        "gr_rect", "gr_circle", "gr_poly", "fp_rect", "fp_circle", "fp_poly"
+    };
+
+    static const std::set<std::string> tstampParents = {
+        "footprint", "module", "pad", "via", "segment", "arc", "zone",
+        "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_curve", "gr_text",
+        "fp_line", "fp_arc", "fp_circle", "fp_rect", "fp_poly", "fp_curve", "fp_text"
+    };
+
+    auto visit = [&]( auto&& self, SEXPR::NODE* node ) -> void
+    {
+        if( !node || node->IsAtom() )
+            return;
+
+        std::string_view head = node->HeadView();
+        std::array<size_t, 32> activeChildRemovalRules;
+        size_t activeChildRemovalRuleCount = 0;
+        std::vector<size_t> overflowActiveChildRemovalRules;
+
+        if( !aChildRemovalRules.empty() )
+        {
+            for( size_t i = 0; i < aChildRemovalRules.size(); ++i )
+            {
+                if( containsString( aChildRemovalRules[i].Parents, head ) )
+                {
+                    if( activeChildRemovalRuleCount < activeChildRemovalRules.size() )
+                        activeChildRemovalRules[activeChildRemovalRuleCount++] = i;
+                    else
+                        overflowActiveChildRemovalRules.push_back( i );
+                }
+            }
+        }
+
+        if( aOptions.PlotParamBools && head == "pcbplotparams" )
+        {
+            for( std::unique_ptr<SEXPR::NODE>& child : node->Children )
+            {
+                if( !child || child->IsAtom() || child->Children.size() < 2 )
+                    continue;
+
+                std::string_view value = child->AtomAtView( 1 );
+
+                if( equalsNoCase( value, "yes" ) && child->SetAtomAt( 1, "true", false ) )
+                    ++counts.PlotParamBools;
+                else if( equalsNoCase( value, "no" ) && child->SetAtomAt( 1, "false", false ) )
+                    ++counts.PlotParamBools;
+            }
+        }
+
+        if( aOptions.UserLayerTypes && head == "layers" )
+        {
+            for( std::unique_ptr<SEXPR::NODE>& layer : node->Children )
+            {
+                if( !layer || layer->IsAtom() || layer->Children.size() < 4 )
+                    continue;
+
+                std::string_view name = layer->AtomAtView( 1 );
+                std::string_view type = layer->AtomAtView( 2 );
+
+                if( name.size() >= 5 && name.substr( 0, 5 ) == "User."
+                    && ( type == "front" || type == "back" || type == "auxiliary" )
+                    && layer->SetAtomAt( 2, "user", false ) )
+                {
+                    ++counts.UserLayerTypes;
+                }
+            }
+        }
+
+        if( ( aOptions.ShapeFillNoToNone || aOptions.ShapeHatchFills )
+            && containsString( shapeHeads, head ) )
+        {
+            SEXPR::NODE* fill = node->ChildList( "fill" );
+
+            if( fill )
+            {
+                std::string_view value = fill->AtomAtView( 1 );
+
+                if( aOptions.ShapeFillNoToNone && equalsNoCase( value, "no" )
+                    && fill->SetAtomAt( 1, "none", false ) )
+                {
+                    ++counts.ShapeFillNoToNone;
+                    value = fill->AtomAtView( 1 );
+                }
+
+                if( aOptions.ShapeHatchFills
+                    && ( value == "hatch" || value == "reverse_hatch" || value == "cross_hatch" )
+                    && fill->SetAtomAt( 1, "yes", false ) )
+                {
+                    ++counts.ShapeHatchFills;
+                }
+            }
+        }
+
+        if( aOptions.ZoneFilledAreasThickness && head == "zone"
+            && node->ChildList( "filled_polygon" ) && !node->ChildList( "filled_areas_thickness" ) )
+        {
+            std::unique_ptr<SEXPR::NODE> thickness = SEXPR::NODE::MakeList();
+            thickness->Children.push_back( SEXPR::NODE::MakeAtom( "filled_areas_thickness" ) );
+            thickness->Children.push_back( SEXPR::NODE::MakeAtom( "no" ) );
+
+            size_t insertAt = node->Children.size();
+
+            for( size_t i = 1; i < node->Children.size(); ++i )
+            {
+                if( node->Children[i] && !node->Children[i]->IsAtom()
+                    && node->Children[i]->HeadView() == "fill" )
+                {
+                    insertAt = i;
+                    break;
+                }
+            }
+
+            node->Children.insert( node->Children.begin() + insertAt, std::move( thickness ) );
+            ++counts.ZoneFilledAreasThickness;
+        }
+
+        bool rebuilding = false;
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( node->Children.get_allocator() );
+
+        auto beginRebuild = [&]( size_t aCurrentIndex )
+        {
+            if( rebuilding )
+                return;
+
+            kept.reserve( node->Children.size() );
+
+            for( size_t j = 0; j < aCurrentIndex; ++j )
+                kept.push_back( std::move( node->Children[j] ) );
+
+            rebuilding = true;
+        };
+
+        auto renameUuidChildrenToTstamp = [&]( SEXPR::NODE* aNode )
+        {
+            if( !aOptions.RenameUuidToTstamp || !aNode || aNode->IsAtom() )
+                return;
+
+            for( std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
+            {
+                if( child && !child->IsAtom() && child->HeadView() == "uuid"
+                    && child->SetAtomAt( 0, "tstamp", false ) )
+                {
+                    ++counts.RenamedUuidToTstamp;
+                }
+            }
+        };
+
+        for( size_t i = 0; i < node->Children.size(); ++i )
+        {
+            std::unique_ptr<SEXPR::NODE>& child = node->Children[i];
+
+            if( !child )
+                continue;
+
+            if( child->IsAtom() )
+            {
+                if( aOptions.ReplaceThievingMode && head == "mode" && child->Atom == "thieving" )
+                {
+                    child->Atom = "polygon";
+                    ++counts.ReplacedThievingMode;
+                }
+
+                if( aOptions.AttrDnpAtoms && head == "attr" && i > 0 && child->Atom == "dnp" )
+                {
+                    ++counts.RemovedAttrDnpAtoms;
+                    beginRebuild( i );
+                    continue;
+                }
+
+                if( rebuilding )
+                    kept.push_back( std::move( child ) );
+
+                continue;
+            }
+
+            std::string_view childHead = child->HeadView();
+
+            if( aOptions.RemoveRootGeneratorVersion && node == aRoot
+                && childHead == "generator_version" )
+            {
+                ++counts.RemovedRootGeneratorVersion;
+                beginRebuild( i );
+                continue;
+            }
+
+            if( activeChildRemovalRuleCount > 0 || !overflowActiveChildRemovalRules.empty() )
+            {
+                bool removeChild = false;
+
+                for( size_t activeIndex = 0; activeIndex < activeChildRemovalRuleCount; ++activeIndex )
+                {
+                    size_t ruleIndex = activeChildRemovalRules[activeIndex];
+
+                    if( containsString( aChildRemovalRules[ruleIndex].Children, childHead ) )
+                    {
+                        ++counts.ChildRemovalRules[ruleIndex];
+                        removeChild = true;
+                        break;
+                    }
+                }
+
+                if( !removeChild )
+                {
+                    for( size_t ruleIndex : overflowActiveChildRemovalRules )
+                    {
+                        if( containsString( aChildRemovalRules[ruleIndex].Children, childHead ) )
+                        {
+                            ++counts.ChildRemovalRules[ruleIndex];
+                            removeChild = true;
+                            break;
+                        }
+                    }
+                }
+
+                if( removeChild )
+                {
+                    beginRebuild( i );
+                    continue;
+                }
+            }
+
+            if( aOptions.RemoveTypedModels && childHead == "model"
+                && child->ChildList( "type" ) )
+            {
+                ++counts.RemovedTypedModels;
+                beginRebuild( i );
+                continue;
+            }
+
+            if( childHead == "uuid" )
+            {
+                if( aOptions.RenameUuidToTstamp && containsString( tstampParents, head )
+                    && child->SetAtomAt( 0, "tstamp", false ) )
+                {
+                    ++counts.RenamedUuidToTstamp;
+                    childHead = child->HeadView();
+                }
+                else if( aOptions.RenameGroupGeneratedUuidToId
+                         && ( head == "group" || head == "generated" )
+                         && child->SetAtomAt( 0, "id", false ) )
+                {
+                    ++counts.RenamedGroupGeneratedUuidToId;
+                    childHead = child->HeadView();
+                }
+            }
+
+            if( aOptions.DowngradePCBFootprintFields
+                && ( head == "footprint" || head == "module" ) )
+            {
+                if( childHead == "property" )
+                {
+                    self( self, child.get() );
+
+                    if( child->AtomAtView( 1 ) == "Reference" )
+                    {
+                        beginRebuild( i );
+                        std::unique_ptr<SEXPR::NODE> text =
+                                pcbPropertyToLegacyFPText( std::move( child ), "reference" );
+                        renameUuidChildrenToTstamp( text.get() );
+                        kept.push_back( std::move( text ) );
+                        ++counts.PCBFootprintFields;
+                        continue;
+                    }
+
+                    if( child->AtomAtView( 1 ) == "Value" )
+                    {
+                        beginRebuild( i );
+                        std::unique_ptr<SEXPR::NODE> text =
+                                pcbPropertyToLegacyFPText( std::move( child ), "value" );
+                        renameUuidChildrenToTstamp( text.get() );
+                        kept.push_back( std::move( text ) );
+                        ++counts.PCBFootprintFields;
+                        continue;
+                    }
+
+                    if( child->AtomAtView( 1 ) == "Description"
+                        && child->SetAtomAt( 1, "ki_description", true ) )
+                    {
+                        ++counts.PCBFootprintFields;
+                    }
+
+                    if( child->Children.size() > 3 )
+                    {
+                        child->Children.resize( 3 );
+                        ++counts.PCBFootprintFields;
+                    }
+
+                    if( rebuilding )
+                        kept.push_back( std::move( child ) );
+
+                    continue;
+                }
+
+                if( childHead == "sheetname" )
+                {
+                    if( !child->AtomAtView( 1 ).empty() )
+                    {
+                        beginRebuild( i );
+                        kept.push_back( propertyNode( "Sheetname", child->AtomAt( 1 ) ) );
+                        ++counts.PCBFootprintFields;
+                    }
+                    else
+                    {
+                        beginRebuild( i );
+                    }
+
+                    continue;
+                }
+
+                if( childHead == "sheetfile" )
+                {
+                    if( !child->AtomAtView( 1 ).empty() )
+                    {
+                        beginRebuild( i );
+                        kept.push_back( propertyNode( "Sheetfile", child->AtomAt( 1 ) ) );
+                        ++counts.PCBFootprintFields;
+                    }
+                    else
+                    {
+                        beginRebuild( i );
+                    }
+
+                    continue;
+                }
+            }
+
+            if( aOptions.RemoveUnlocked && childHead == "unlocked" )
+            {
+                ++counts.RemovedUnlocked;
+                beginRebuild( i );
+                continue;
+            }
+
+            if( aOptions.RemoveLocked && childHead == "locked" )
+            {
+                if( aOptions.BoardPresenceBoolFields && child->Children.size() > 1 )
+                {
+                    bool enabled = parseKiCadBool( child->AtomAtView( 1 ), true );
+                    ++counts.BoardPresenceBoolFields;
+
+                    if( enabled )
+                        ++counts.RemovedLocked;
+                }
+                else
+                {
+                    ++counts.RemovedLocked;
+                }
+
+                beginRebuild( i );
+                continue;
+            }
+
+            if( aOptions.BoardPresenceBoolFields
+                && ( childHead == "locked" || childHead == "hide" ) && child->Children.size() > 1 )
+            {
+                bool enabled = parseKiCadBool( child->AtomAtView( 1 ), true );
+                ++counts.BoardPresenceBoolFields;
+
+                if( enabled )
+                {
+                    child->Children.resize( 1 );
+
+                    if( rebuilding )
+                        kept.push_back( std::move( child ) );
+                }
+                else
+                {
+                    beginRebuild( i );
+                }
+
+                continue;
+            }
+
+            if( aOptions.FreeViaPresence && childHead == "free" && child->Children.size() > 1 )
+            {
+                bool enabled = parseKiCadBool( child->AtomAtView( 1 ), true );
+                ++counts.FreeViaPresence;
+
+                if( enabled )
+                {
+                    child->Children.resize( 1 );
+
+                    if( rebuilding )
+                        kept.push_back( std::move( child ) );
+                }
+                else
+                {
+                    beginRebuild( i );
+                }
+
+                continue;
+            }
+
+            if( aOptions.DimensionBoolFields
+                && ( childHead == "suppress_zeroes" || childHead == "keep_text_aligned" ) )
+            {
+                bool enabled = parseKiCadBool( child->AtomAtView( 1 ), true );
+                ++counts.DimensionBoolFields;
+                beginRebuild( i );
+
+                if( enabled )
+                    kept.push_back( SEXPR::NODE::MakeAtom( std::string( childHead ) ) );
+
+                continue;
+            }
+
+            if( aOptions.FontStyleLists && head == "font"
+                && ( childHead == "bold" || childHead == "italic" ) && child->Children.size() > 1 )
+            {
+                bool enabled = parseKiCadBool( child->AtomAtView( 1 ), true );
+                ++counts.FontStyleLists;
+                beginRebuild( i );
+
+                if( enabled )
+                    kept.push_back( SEXPR::NODE::MakeAtom( std::string( childHead ) ) );
+
+                continue;
+            }
+
+            self( self, child.get() );
+
+            if( rebuilding )
+                kept.push_back( std::move( child ) );
+        }
+
+        if( rebuilding )
+            node->Children = std::move( kept );
+    };
+
+    visit( visit, aRoot );
+    return counts;
+}
+
+
 bool hasChild( SEXPR::NODE* aNode, const std::string& aHead )
 {
     return aNode && aNode->ChildList( aHead ) != nullptr;
 }
 
 
-bool parseKiCadBool( const std::string& aValue, bool aDefault )
+bool parseKiCadBool( std::string_view aValue, bool aDefault )
 {
-    std::string value = Lower( aValue );
-
-    if( value == "yes" || value == "true" || value == "1" )
+    if( equalsNoCase( aValue, "yes" ) || equalsNoCase( aValue, "true" ) || aValue == "1" )
         return true;
 
-    if( value == "no" || value == "false" || value == "0" )
+    if( equalsNoCase( aValue, "no" ) || equalsNoCase( aValue, "false" ) || aValue == "0" )
         return false;
 
     return aDefault;
 }
 
 
-bool isIntegerAtom( const std::string& aValue )
+bool isIntegerAtom( std::string_view aValue )
 {
     if( aValue.empty() )
         return false;
@@ -118,16 +791,17 @@ bool isIntegerAtom( const std::string& aValue )
 }
 
 
-int atomToInt( const std::string& aValue, int aDefault = 0 )
+int atomToInt( std::string_view aValue, int aDefault = 0 )
 {
-    try
-    {
-        return std::stoi( aValue );
-    }
-    catch( const std::exception& )
-    {
+    int value = aDefault;
+    const char* first = aValue.data();
+    const char* last = first + aValue.size();
+    auto result = std::from_chars( first, last, value );
+
+    if( result.ec != std::errc() || result.ptr != last )
         return aDefault;
-    }
+
+    return value;
 }
 
 
@@ -159,13 +833,13 @@ int ensureLegacyPropertyIds( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( aRoot->Head() == "symbol" || aRoot->Head() == "sheet" )
+    if( aRoot->HeadView() == "symbol" || aRoot->HeadView() == "sheet" )
     {
         int nextId = 5;
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
-            if( !child || child->IsAtom() || child->Head() != "property" )
+            if( !child || child->IsAtom() || child->HeadView() != "property" )
                 continue;
 
             if( isStandardSchProperty( child->AtomAt( 1 ) ) || child->ChildList( "id" ) )
@@ -196,9 +870,9 @@ int movePropertyHideToEffects( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( aRoot->Head() == "property" )
+    if( aRoot->HeadView() == "property" )
     {
-        std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
         bool hidden = false;
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
@@ -210,7 +884,7 @@ int movePropertyHideToEffects( SEXPR::NODE* aRoot )
                 continue;
             }
 
-            if( child && !child->IsAtom() && child->Head() == "hide" )
+            if( child && !child->IsAtom() && child->HeadView() == "hide" )
             {
                 hidden = parseKiCadBool( child->AtomAt( 1 ), true );
                 ++changed;
@@ -247,11 +921,11 @@ int removeDirectChildrenByHead( SEXPR::NODE* aRoot, const std::string& aHead )
         return 0;
 
     int removed = 0;
-    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
     {
-        if( child && !child->IsAtom() && child->Head() == aHead )
+        if( child && !child->IsAtom() && child->HeadView() == aHead )
         {
             ++removed;
             continue;
@@ -274,11 +948,11 @@ int renameChildHeadInParents( SEXPR::NODE* aRoot, const std::set<std::string>& a
 
     int changed = 0;
 
-    if( aParents.count( aRoot->Head() ) )
+    if( containsString( aParents, aRoot->HeadView() ) )
     {
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
-            if( child && !child->IsAtom() && child->Head() == aFrom && child->SetAtomAt( 0, aTo, false ) )
+            if( child && !child->IsAtom() && child->HeadView() == aFrom && child->SetAtomAt( 0, aTo, false ) )
                 ++changed;
         }
     }
@@ -298,15 +972,15 @@ int removeAtomsFromHeadedLists( SEXPR::NODE* aRoot, const std::set<std::string>&
 
     int removed = 0;
 
-    if( aParents.count( aRoot->Head() ) )
+    if( containsString( aParents, aRoot->HeadView() ) )
     {
-        std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
 
         for( size_t i = 0; i < aRoot->Children.size(); ++i )
         {
             std::unique_ptr<SEXPR::NODE>& child = aRoot->Children[i];
 
-            if( i > 0 && child && child->IsAtom() && aAtoms.count( child->Atom ) )
+            if( i > 0 && child && child->IsAtom() && containsString( aAtoms, child->Atom ) )
             {
                 ++removed;
                 continue;
@@ -334,13 +1008,13 @@ int flattenChildListsToAtomsInParents( SEXPR::NODE* aRoot, const std::set<std::s
 
     int changed = 0;
 
-    if( aParents.count( aRoot->Head() ) )
+    if( containsString( aParents, aRoot->HeadView() ) )
     {
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
-            if( child && !child->IsAtom() && aChildren.count( child->Head() ) )
+            if( child && !child->IsAtom() && containsString( aChildren, child->HeadView() ) )
             {
-                child = SEXPR::NODE::MakeAtom( child->Head() );
+                child = SEXPR::NODE::MakeAtom( std::string( child->HeadView() ) );
                 ++changed;
             }
         }
@@ -375,7 +1049,7 @@ int downgradeTentingToLegacyAtoms( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( aRoot->Head() == "tenting" )
+    if( aRoot->HeadView() == "tenting" )
     {
         bool sawFront = false;
         bool sawBack = false;
@@ -384,7 +1058,7 @@ int downgradeTentingToLegacyAtoms( SEXPR::NODE* aRoot )
 
         if( sawFront || sawBack )
         {
-            std::vector<std::unique_ptr<SEXPR::NODE>> children;
+            std::pmr::vector<std::unique_ptr<SEXPR::NODE>> children( aRoot->Children.get_allocator() );
             children.push_back( SEXPR::NODE::MakeAtom( "tenting" ) );
 
             if( front )
@@ -415,14 +1089,14 @@ int downgradeBooleanPresenceNodes( SEXPR::NODE* aRoot, const std::set<std::strin
         return 0;
 
     int changed = 0;
-    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
     {
         if( !child )
             continue;
 
-        if( !child->IsAtom() && aHeads.count( child->Head() ) && child->Children.size() > 1 )
+        if( !child->IsAtom() && containsString( aHeads, child->HeadView() ) && child->Children.size() > 1 )
         {
             std::string value = Lower( child->AtomAt( 1 ) );
 
@@ -454,17 +1128,17 @@ int downgradeFontStyleListsToAtoms( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( aRoot->Head() == "font" )
+    if( aRoot->HeadView() == "font" )
     {
-        std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
             if( child && !child->IsAtom()
-                && ( child->Head() == "bold" || child->Head() == "italic" )
+                && ( child->HeadView() == "bold" || child->HeadView() == "italic" )
                 && child->Children.size() > 1 )
             {
-                std::string head = child->Head();
+                std::string head( child->HeadView() );
                 bool enabled = parseKiCadBool( child->AtomAt( 1 ), true );
 
                 if( enabled )
@@ -493,19 +1167,19 @@ int downgradeBoolListsToAtoms( SEXPR::NODE* aRoot, const std::set<std::string>& 
         return 0;
 
     int changed = 0;
-    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
     {
         if( !child )
             continue;
 
-        if( !child->IsAtom() && aHeads.count( child->Head() ) )
+        if( !child->IsAtom() && containsString( aHeads, child->HeadView() ) )
         {
             bool enabled = parseKiCadBool( child->AtomAt( 1 ), true );
 
             if( enabled )
-                kept.push_back( SEXPR::NODE::MakeAtom( child->Head() ) );
+                kept.push_back( SEXPR::NODE::MakeAtom( std::string( child->HeadView() ) ) );
 
             ++changed;
             continue;
@@ -536,7 +1210,7 @@ std::unique_ptr<SEXPR::NODE> pcbPropertyToLegacyFPText( std::unique_ptr<SEXPR::N
         if( !child )
             continue;
 
-        if( !child->IsAtom() && child->Head() == "hide" )
+        if( !child->IsAtom() && child->HeadView() == "hide" )
         {
             if( parseKiCadBool( child->AtomAt( 1 ), true ) )
                 text->Children.push_back( SEXPR::NODE::MakeAtom( "hide" ) );
@@ -558,9 +1232,9 @@ int downgradePCBFootprintFields( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( aRoot->Head() == "footprint" || aRoot->Head() == "module" )
+    if( aRoot->HeadView() == "footprint" || aRoot->HeadView() == "module" )
     {
-        std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
@@ -569,7 +1243,7 @@ int downgradePCBFootprintFields( SEXPR::NODE* aRoot )
 
             if( !child->IsAtom() )
             {
-                if( child->Head() == "property" )
+                if( child->HeadView() == "property" )
                 {
                     if( child->AtomAt( 1 ) == "Reference" )
                     {
@@ -594,7 +1268,7 @@ int downgradePCBFootprintFields( SEXPR::NODE* aRoot )
                         ++changed;
                     }
                 }
-                else if( child->Head() == "sheetname" )
+                else if( child->HeadView() == "sheetname" )
                 {
                     if( !child->AtomAt( 1 ).empty() )
                     {
@@ -604,7 +1278,7 @@ int downgradePCBFootprintFields( SEXPR::NODE* aRoot )
 
                     continue;
                 }
-                else if( child->Head() == "sheetfile" )
+                else if( child->HeadView() == "sheetfile" )
                 {
                     if( !child->AtomAt( 1 ).empty() )
                     {
@@ -636,7 +1310,7 @@ int downgradeUserLayerTypes( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( aRoot->Head() == "layers" )
+    if( aRoot->HeadView() == "layers" )
     {
         for( std::unique_ptr<SEXPR::NODE>& layer : aRoot->Children )
         {
@@ -671,7 +1345,7 @@ int downgradePCBPlotParamsBoolsToTrueFalse( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( aRoot->Head() == "pcbplotparams" )
+    if( aRoot->HeadView() == "pcbplotparams" )
     {
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
@@ -707,7 +1381,7 @@ int downgradePCBShapeFillNoToNone( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( shapeHeads.count( aRoot->Head() ) )
+    if( containsString( shapeHeads, aRoot->HeadView() ) )
     {
         SEXPR::NODE* fill = aRoot->ChildList( "fill" );
 
@@ -734,7 +1408,7 @@ int downgradePCBShapeHatchFills( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( shapeHeads.count( aRoot->Head() ) )
+    if( containsString( shapeHeads, aRoot->HeadView() ) )
     {
         SEXPR::NODE* fill = aRoot->ChildList( "fill" );
 
@@ -765,7 +1439,7 @@ int ensureZoneFilledAreasThickness( SEXPR::NODE* aRoot )
 
     int changed = 0;
 
-    if( aRoot->Head() == "zone" && aRoot->ChildList( "filled_polygon" )
+    if( aRoot->HeadView() == "zone" && aRoot->ChildList( "filled_polygon" )
         && !aRoot->ChildList( "filled_areas_thickness" ) )
     {
         std::unique_ptr<SEXPR::NODE> thickness = SEXPR::NODE::MakeList();
@@ -777,7 +1451,7 @@ int ensureZoneFilledAreasThickness( SEXPR::NODE* aRoot )
         for( size_t i = 1; i < aRoot->Children.size(); ++i )
         {
             if( aRoot->Children[i] && !aRoot->Children[i]->IsAtom()
-                && aRoot->Children[i]->Head() == "fill" )
+                && aRoot->Children[i]->HeadView() == "fill" )
             {
                 insertAt = i;
                 break;
@@ -830,13 +1504,13 @@ int downgradeDimensionsToTextImpl( SEXPR::NODE* aRoot, bool aInsideFootprint )
     if( !aRoot || aRoot->IsAtom() )
         return 0;
 
-    bool insideFootprint = aInsideFootprint || aRoot->Head() == "footprint" || aRoot->Head() == "module";
+    bool insideFootprint = aInsideFootprint || aRoot->HeadView() == "footprint" || aRoot->HeadView() == "module";
     int changed = 0;
-    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
     {
-        if( child && !child->IsAtom() && child->Head() == "dimension" )
+        if( child && !child->IsAtom() && child->HeadView() == "dimension" )
         {
             std::unique_ptr<SEXPR::NODE> text = legacyTextFromDimension( std::move( child ),
                                                                          insideFootprint );
@@ -870,11 +1544,11 @@ int removeNodesContainingChild( SEXPR::NODE* aRoot, const std::string& aParentHe
         return 0;
 
     int removed = 0;
-    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
     {
-        if( child && !child->IsAtom() && child->Head() == aParentHead && hasChild( child.get(), aChildHead ) )
+        if( child && !child->IsAtom() && child->HeadView() == aParentHead && hasChild( child.get(), aChildHead ) )
         {
             ++removed;
             continue;
@@ -897,11 +1571,11 @@ int replaceAtomValuesInParents( SEXPR::NODE* aRoot, const std::set<std::string>&
 
     int changed = 0;
 
-    if( aParents.count( aRoot->Head() ) )
+    if( containsString( aParents, aRoot->HeadView() ) )
     {
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
-            if( child && child->IsAtom() && child->Atom == aFrom )
+            if( child && child->IsAtom() && std::string_view( child->Atom ) == aFrom )
             {
                 child->Atom = aTo;
                 ++changed;
@@ -930,12 +1604,12 @@ std::string zoneNetName( SEXPR::NODE* aZone )
 }
 
 
-void collectBoardNetRefs( SEXPR::NODE* aRoot, std::map<std::string, int>& aCodes, int& aNext )
+void collectBoardNetRefs( SEXPR::NODE* aRoot, std::unordered_map<std::string, int>& aCodes, int& aNext )
 {
     if( !aRoot || aRoot->IsAtom() )
         return;
 
-    if( aRoot->Head() == "net" && !isIntegerAtom( aRoot->AtomAt( 1 ) ) )
+    if( aRoot->HeadView() == "net" && !isIntegerAtom( aRoot->AtomAtView( 1 ) ) )
     {
         std::string name = aRoot->AtomAt( 1 );
 
@@ -948,9 +1622,10 @@ void collectBoardNetRefs( SEXPR::NODE* aRoot, std::map<std::string, int>& aCodes
 }
 
 
-std::map<std::string, int> collectBoardNetCodes( SEXPR::NODE* aRoot )
+std::unordered_map<std::string, int> collectBoardNetCodes( SEXPR::NODE* aRoot )
 {
-    std::map<std::string, int> codes;
+    std::unordered_map<std::string, int> codes;
+    codes.reserve( 128 );
     codes[""] = 0;
     int next = 1;
 
@@ -958,12 +1633,12 @@ std::map<std::string, int> collectBoardNetCodes( SEXPR::NODE* aRoot )
     {
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         {
-            if( !child || child->IsAtom() || child->Head() != "net" )
+            if( !child || child->IsAtom() || child->HeadView() != "net" )
                 continue;
 
-            if( isIntegerAtom( child->AtomAt( 1 ) ) )
+            if( isIntegerAtom( child->AtomAtView( 1 ) ) )
             {
-                int code = atomToInt( child->AtomAt( 1 ) );
+                int code = atomToInt( child->AtomAtView( 1 ) );
                 std::string name = child->AtomAt( 2 );
 
                 if( !codes.count( name ) )
@@ -988,14 +1663,14 @@ std::map<std::string, int> collectBoardNetCodes( SEXPR::NODE* aRoot )
 
 
 int rewriteBoardNetNamesToCodes( SEXPR::NODE* aRoot, const std::string& aParentHead,
-                                 const std::map<std::string, int>& aCodes )
+                                 const std::unordered_map<std::string, int>& aCodes )
 {
     if( !aRoot || aRoot->IsAtom() )
         return 0;
 
     int changed = 0;
 
-    if( aRoot->Head() == "net" && !isIntegerAtom( aRoot->AtomAt( 1 ) ) )
+    if( aRoot->HeadView() == "net" && !isIntegerAtom( aRoot->AtomAtView( 1 ) ) )
     {
         std::string name = aRoot->AtomAt( 1 );
         int code = 0;
@@ -1005,7 +1680,7 @@ int rewriteBoardNetNamesToCodes( SEXPR::NODE* aRoot, const std::string& aParentH
             code = it->second;
 
         std::unique_ptr<SEXPR::NODE> head = std::move( aRoot->Children[0] );
-        std::vector<std::unique_ptr<SEXPR::NODE>> children;
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> children( aRoot->Children.get_allocator() );
         children.push_back( std::move( head ) );
         children.push_back( SEXPR::NODE::MakeAtom( std::to_string( code ) ) );
 
@@ -1019,7 +1694,7 @@ int rewriteBoardNetNamesToCodes( SEXPR::NODE* aRoot, const std::string& aParentH
         ++changed;
     }
 
-    if( aRoot->Head() == "zone" )
+    if( aRoot->HeadView() == "zone" )
     {
         std::string name = zoneNetName( aRoot );
 
@@ -1056,7 +1731,7 @@ int firstBoardItemIndex( SEXPR::NODE* aRoot )
     {
         SEXPR::NODE* child = aRoot->Children[i].get();
 
-        if( child && !child->IsAtom() && itemHeads.count( child->Head() ) )
+        if( child && !child->IsAtom() && containsString( itemHeads, child->HeadView() ) )
             return static_cast<int>( i );
     }
 
@@ -1064,10 +1739,10 @@ int firstBoardItemIndex( SEXPR::NODE* aRoot )
 }
 
 
-int ensureRootBoardNetCodeTable( SEXPR::NODE* aRoot, const std::map<std::string, int>& aCodes )
+int ensureRootBoardNetCodeTable( SEXPR::NODE* aRoot, const std::unordered_map<std::string, int>& aCodes )
 {
     // Legacy boards require root-level numeric net declarations before items reference them.
-    if( !aRoot || aRoot->IsAtom() || aRoot->Head() != "kicad_pcb" )
+    if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "kicad_pcb" )
         return 0;
 
     std::set<int> existingCodes;
@@ -1077,11 +1752,11 @@ int ensureRootBoardNetCodeTable( SEXPR::NODE* aRoot, const std::map<std::string,
     {
         SEXPR::NODE* child = aRoot->Children[i].get();
 
-        if( !child || child->IsAtom() || child->Head() != "net" )
+        if( !child || child->IsAtom() || child->HeadView() != "net" )
             continue;
 
-        if( isIntegerAtom( child->AtomAt( 1 ) ) )
-            existingCodes.insert( atomToInt( child->AtomAt( 1 ) ) );
+        if( isIntegerAtom( child->AtomAtView( 1 ) ) )
+            existingCodes.insert( atomToInt( child->AtomAtView( 1 ) ) );
 
         lastRootNet = static_cast<int>( i );
     }
@@ -1131,7 +1806,7 @@ int ensureRootBoardNetCodeTable( SEXPR::NODE* aRoot, const std::map<std::string,
 // Rebuilds legacy numeric net ids while keeping net names where required.
 int downgradeBoardNetNamesToCodes( SEXPR::NODE* aRoot )
 {
-    std::map<std::string, int> codes = collectBoardNetCodes( aRoot );
+    std::unordered_map<std::string, int> codes = collectBoardNetCodes( aRoot );
     int changed = rewriteBoardNetNamesToCodes( aRoot, std::string(), codes );
     changed += ensureRootBoardNetCodeTable( aRoot, codes );
     return changed;
@@ -1143,19 +1818,36 @@ std::vector<std::string> removeIntroduced( SEXPR::NODE* aRoot, int aTarget,
 {
     // Feature gates are deliberately conservative: remove only when the target parser cannot read it.
     std::vector<std::string> warnings;
+    std::vector<std::pair<std::string, size_t>> headToRule;
+    std::vector<int> counts( aRules.size(), 0 );
 
-    for( const FEATURE_RULE& rule : aRules )
+    for( size_t i = 0; i < aRules.size(); ++i )
     {
+        const FEATURE_RULE& rule = aRules[i];
+
         if( aTarget >= rule.MinVersion )
             continue;
 
-        std::set<std::string> heads( rule.Heads.begin(), rule.Heads.end() );
-        int removed = removeDescendantsByHead( aRoot, heads );
+        for( const std::string& head : rule.Heads )
+            headToRule.emplace_back( head, i );
+    }
 
-        if( removed > 0 )
+    if( headToRule.empty() )
+        return warnings;
+
+    removeDescendantsByRuleHeads( aRoot, headToRule, counts );
+
+    for( size_t i = 0; i < aRules.size(); ++i )
+    {
+        const FEATURE_RULE& rule = aRules[i];
+
+        if( aTarget >= rule.MinVersion )
+            continue;
+
+        if( counts[i] > 0 )
         {
             std::ostringstream msg;
-            msg << "removed " << removed << " node(s) introduced in " << rule.MinVersion
+            msg << "removed " << counts[i] << " node(s) introduced in " << rule.MinVersion
                 << ": " << rule.Reason;
             warnings.push_back( msg.str() );
         }

@@ -1,6 +1,7 @@
 #include "kicad_backport/sexpr.h"
 
 #include <cctype>
+#include <cstdint>
 #include <stdexcept>
 
 
@@ -9,10 +10,39 @@ namespace SEXPR
 namespace
 {
 
-struct TOKEN
+thread_local std::pmr::memory_resource* g_parseResource = nullptr;
+
+struct NODE_ALLOCATION_HEADER
 {
-    std::string Text;
-    bool        Quoted = false;
+    std::pmr::memory_resource* Resource;
+};
+
+
+size_t alignUp( size_t aValue, size_t aAlignment )
+{
+    return ( aValue + aAlignment - 1 ) & ~( aAlignment - 1 );
+}
+
+
+constexpr uintptr_t GLOBAL_NODE_ALLOCATION = 1;
+
+
+class PARSE_RESOURCE_SCOPE
+{
+public:
+    explicit PARSE_RESOURCE_SCOPE( std::pmr::memory_resource* aResource ) :
+            m_previous( g_parseResource )
+    {
+        g_parseResource = aResource;
+    }
+
+    ~PARSE_RESOURCE_SCOPE()
+    {
+        g_parseResource = m_previous;
+    }
+
+private:
+    std::pmr::memory_resource* m_previous;
 };
 
 
@@ -22,120 +52,151 @@ bool isSpace( char aChar )
 }
 
 
-std::vector<TOKEN> tokenize( const std::string& aText )
+class PARSER
 {
-    std::vector<TOKEN> tokens;
-
-    for( size_t i = 0; i < aText.size(); )
+public:
+    explicit PARSER( const std::string& aText ) :
+            m_text( aText )
     {
-        // Accept UTF-8 BOM files produced by some Windows editors.
-        if( i == 0 && aText.size() >= 3
-            && static_cast<unsigned char>( aText[0] ) == 0xEF
-            && static_cast<unsigned char>( aText[1] ) == 0xBB
-            && static_cast<unsigned char>( aText[2] ) == 0xBF )
+    }
+
+    std::unique_ptr<NODE> ParseRoot()
+    {
+        skipBom();
+        skipSpace();
+
+        if( eof() || peek() != '(' )
+            throw std::runtime_error( "expected '('" );
+
+        ++m_pos;
+        std::unique_ptr<NODE> root = parseList();
+        skipSpace();
+
+        if( !eof() )
+            throw std::runtime_error( "trailing tokens after root expression" );
+
+        return root;
+    }
+
+private:
+    bool eof() const
+    {
+        return m_pos >= m_text.size();
+    }
+
+    char peek() const
+    {
+        return m_text[m_pos];
+    }
+
+    void skipBom()
+    {
+        if( m_pos == 0 && m_text.size() >= 3
+            && static_cast<unsigned char>( m_text[0] ) == 0xEF
+            && static_cast<unsigned char>( m_text[1] ) == 0xBB
+            && static_cast<unsigned char>( m_text[2] ) == 0xBF )
         {
-            i = 3;
-            continue;
+            m_pos = 3;
         }
+    }
 
-        if( isSpace( aText[i] ) )
+    void skipSpace()
+    {
+        while( !eof() && isSpace( peek() ) )
+            ++m_pos;
+    }
+
+    std::unique_ptr<NODE> parseList()
+    {
+        std::unique_ptr<NODE> node = NODE::MakeList();
+        node->Children.reserve( 8 );
+
+        while( true )
         {
-            ++i;
-            continue;
-        }
+            skipSpace();
 
-        if( aText[i] == '(' || aText[i] == ')' )
-        {
-            tokens.push_back( TOKEN{ std::string( 1, aText[i] ), false } );
-            ++i;
-            continue;
-        }
+            if( eof() )
+                throw std::runtime_error( "unexpected end of input: unclosed '('" );
 
-        if( aText[i] == '"' )
-        {
-            ++i;
-            std::string value;
-            bool closed = false;
+            char ch = peek();
 
-            while( i < aText.size() )
+            if( ch == ')' )
             {
-                char ch = aText[i++];
-
-                if( ch == '"' )
-                {
-                    closed = true;
-                    break;
-                }
-
-                if( ch == '\\' )
-                {
-                    if( i >= aText.size() )
-                        throw std::runtime_error( "unterminated escape in quoted string" );
-
-                    char escaped = aText[i++];
-
-                    switch( escaped )
-                    {
-                    case '\\': value.push_back( '\\' ); break;
-                    case '"':  value.push_back( '"' );  break;
-                    case 'n':  value.push_back( '\n' ); break;
-                    case 't':  value.push_back( '\t' ); break;
-                    default:   value.push_back( escaped ); break;
-                    }
-
-                    continue;
-                }
-
-                value.push_back( ch );
+                ++m_pos;
+                return node;
             }
 
-            if( !closed )
-                throw std::runtime_error( "unterminated quoted string" );
+            if( ch == '(' )
+            {
+                ++m_pos;
+                node->Children.push_back( parseList() );
+                continue;
+            }
 
-            tokens.push_back( TOKEN{ value, true } );
-            continue;
+            if( ch == '"' )
+            {
+                node->Children.push_back( parseQuotedAtom() );
+                continue;
+            }
+
+            node->Children.push_back( parseAtom() );
         }
-
-        size_t start = i;
-
-        while( i < aText.size() && aText[i] != '(' && aText[i] != ')' && !isSpace( aText[i] ) )
-            ++i;
-
-        tokens.push_back( TOKEN{ aText.substr( start, i - start ), false } );
     }
 
-    return tokens;
-}
-
-
-std::unique_ptr<NODE> parseList( const std::vector<TOKEN>& aTokens, size_t& aPos )
-{
-    // Recursive descent is enough because KiCad files are already fully parenthesized.
-    std::unique_ptr<NODE> node = NODE::MakeList();
-
-    while( aPos < aTokens.size() )
+    std::unique_ptr<NODE> parseQuotedAtom()
     {
-        const TOKEN& token = aTokens[aPos++];
+        ++m_pos;
+        std::string value;
+        value.reserve( 32 );
 
-        if( token.Text == "(" )
+        while( !eof() )
         {
-            node->Children.push_back( parseList( aTokens, aPos ) );
+            char ch = m_text[m_pos++];
+
+            if( ch == '"' )
+                return NODE::MakeAtom( std::move( value ), true );
+
+            if( ch == '\\' )
+            {
+                if( eof() )
+                    throw std::runtime_error( "unterminated escape in quoted string" );
+
+                char escaped = m_text[m_pos++];
+
+                switch( escaped )
+                {
+                case '\\': value.push_back( '\\' ); break;
+                case '"':  value.push_back( '"' );  break;
+                case 'n':  value.push_back( '\n' ); break;
+                case 't':  value.push_back( '\t' ); break;
+                default:   value.push_back( escaped ); break;
+                }
+
+                continue;
+            }
+
+            value.push_back( ch );
         }
-        else if( token.Text == ")" )
-        {
-            return node;
-        }
-        else
-        {
-            node->Children.push_back( NODE::MakeAtom( token.Text, token.Quoted ) );
-        }
+
+        throw std::runtime_error( "unterminated quoted string" );
     }
 
-    throw std::runtime_error( "unexpected end of input: unclosed '('" );
-}
+    std::unique_ptr<NODE> parseAtom()
+    {
+        size_t start = m_pos;
+
+        while( !eof() && peek() != '(' && peek() != ')' && !isSpace( peek() ) )
+            ++m_pos;
+
+        return NODE::MakeAtom( m_text.substr( start, m_pos - start ), false );
+    }
+
+    const std::string& m_text;
+    size_t             m_pos = 0;
+};
 
 
-bool needsQuotes( const std::string& aAtom )
+bool needsQuotes( std::string_view aAtom )
 {
     if( aAtom.empty() )
         return true;
@@ -150,7 +211,7 @@ bool needsQuotes( const std::string& aAtom )
 }
 
 
-std::string escapeAtom( const std::string& aAtom )
+std::string escapeAtom( std::string_view aAtom )
 {
     std::string out;
 
@@ -175,7 +236,42 @@ std::string formatAtom( const NODE* aNode )
     if( aNode->Quoted || needsQuotes( aNode->Atom ) )
         return "\"" + escapeAtom( aNode->Atom ) + "\"";
 
-    return aNode->Atom;
+    return std::string( aNode->Atom );
+}
+
+
+size_t escapedAtomLength( std::string_view aAtom )
+{
+    size_t len = 0;
+
+    for( char ch : aAtom )
+    {
+        switch( ch )
+        {
+        case '\\':
+        case '"':
+        case '\n':
+        case '\t':
+            len += 2;
+            break;
+        default:
+            ++len;
+            break;
+        }
+    }
+
+    return len;
+}
+
+
+size_t formattedAtomLength( const NODE* aNode )
+{
+    size_t len = escapedAtomLength( aNode->Atom );
+
+    if( aNode->Quoted || needsQuotes( aNode->Atom ) )
+        len += 2;
+
+    return len;
 }
 
 
@@ -197,7 +293,7 @@ bool shouldInline( const NODE* aNode )
         if( i > 0 )
             ++totalLen;
 
-        totalLen += formatAtom( child.get() ).size();
+        totalLen += formattedAtomLength( child.get() );
     }
 
     return totalLen <= 88;
@@ -252,10 +348,66 @@ void writeNode( std::string& aOut, const NODE* aNode, int aIndent )
 } // namespace
 
 
+void* NODE::operator new( size_t aSize )
+{
+    const size_t headerSize = alignUp( sizeof( NODE_ALLOCATION_HEADER ), alignof( NODE ) );
+    const size_t totalSize = headerSize + aSize;
+
+    if( g_parseResource )
+    {
+        char* raw = static_cast<char*>( g_parseResource->allocate( totalSize, alignof( NODE ) ) );
+        auto* header = reinterpret_cast<NODE_ALLOCATION_HEADER*>( raw );
+        header->Resource = g_parseResource;
+        return raw + headerSize;
+    }
+
+    char* raw = static_cast<char*>( ::operator new( totalSize ) );
+    auto* header = reinterpret_cast<NODE_ALLOCATION_HEADER*>( raw );
+    header->Resource = reinterpret_cast<std::pmr::memory_resource*>( GLOBAL_NODE_ALLOCATION );
+    return raw + headerSize;
+}
+
+
+void NODE::operator delete( void* aPtr ) noexcept
+{
+    if( !aPtr )
+        return;
+
+    const size_t headerSize = alignUp( sizeof( NODE_ALLOCATION_HEADER ), alignof( NODE ) );
+    char* raw = static_cast<char*>( aPtr ) - headerSize;
+    auto* header = reinterpret_cast<NODE_ALLOCATION_HEADER*>( raw );
+
+    if( reinterpret_cast<uintptr_t>( header->Resource ) == GLOBAL_NODE_ALLOCATION )
+        ::operator delete( raw );
+}
+
+
+void NODE::operator delete( void* aPtr, size_t ) noexcept
+{
+    NODE::operator delete( aPtr );
+}
+
+
+NODE::NODE() :
+        Atom( g_parseResource ? g_parseResource : std::pmr::get_default_resource() ),
+        Children( g_parseResource ? g_parseResource : std::pmr::get_default_resource() )
+{
+}
+
+
 std::unique_ptr<NODE> NODE::MakeAtom( const std::string& aValue, bool aQuoted )
 {
     std::unique_ptr<NODE> node( new NODE );
     node->Atom = aValue;
+    node->Quoted = aQuoted;
+    return node;
+}
+
+
+std::unique_ptr<NODE> NODE::MakeAtom( std::string&& aValue, bool aQuoted )
+{
+    std::unique_ptr<NODE> node( new NODE );
+    node->Atom = std::move( aValue );
     node->Quoted = aQuoted;
     return node;
 }
@@ -269,8 +421,14 @@ std::unique_ptr<NODE> NODE::MakeList()
 
 std::string NODE::Head() const
 {
+    return std::string( HeadView() );
+}
+
+
+std::string_view NODE::HeadView() const
+{
     if( Children.empty() || !Children[0] || !Children[0]->IsAtom() )
-        return std::string();
+        return {};
 
     return Children[0]->Atom;
 }
@@ -278,8 +436,14 @@ std::string NODE::Head() const
 
 std::string NODE::AtomAt( size_t aIndex ) const
 {
+    return std::string( AtomAtView( aIndex ) );
+}
+
+
+std::string_view NODE::AtomAtView( size_t aIndex ) const
+{
     if( aIndex >= Children.size() || !Children[aIndex] || !Children[aIndex]->IsAtom() )
-        return std::string();
+        return {};
 
     return Children[aIndex]->Atom;
 }
@@ -300,7 +464,7 @@ NODE* NODE::ChildList( const std::string& aHead )
 {
     for( std::unique_ptr<NODE>& child : Children )
     {
-        if( child && !child->IsAtom() && child->Head() == aHead )
+        if( child && !child->IsAtom() && child->HeadView() == aHead )
             return child.get();
     }
 
@@ -314,7 +478,7 @@ std::vector<NODE*> NODE::ChildLists( const std::string& aHead )
 
     for( std::unique_ptr<NODE>& child : Children )
     {
-        if( child && !child->IsAtom() && child->Head() == aHead )
+        if( child && !child->IsAtom() && child->HeadView() == aHead )
             out.push_back( child.get() );
     }
 
@@ -324,24 +488,28 @@ std::vector<NODE*> NODE::ChildLists( const std::string& aHead )
 
 std::unique_ptr<NODE> Parse( const std::string& aText )
 {
-    std::vector<TOKEN> tokens = tokenize( aText );
+    auto arena = std::make_shared<std::pmr::monotonic_buffer_resource>();
+    PARSE_RESOURCE_SCOPE scope( arena.get() );
 
-    if( tokens.empty() || tokens[0].Text != "(" )
-        throw std::runtime_error( "expected '('" );
-
-    size_t pos = 1;
-    std::unique_ptr<NODE> root = parseList( tokens, pos );
-
-    if( pos != tokens.size() )
-        throw std::runtime_error( "trailing tokens after root expression" );
-
+    PARSER parser( aText );
+    std::unique_ptr<NODE> root = parser.ParseRoot();
+    root->ArenaOwner = arena;
     return root;
 }
 
 
 std::string Format( const NODE* aRoot )
 {
+    return Format( aRoot, 0 );
+}
+
+
+std::string Format( const NODE* aRoot, size_t aReserveBytes )
+{
     std::string out;
+    if( aReserveBytes > 0 )
+        out.reserve( aReserveBytes );
+
     writeNode( out, aRoot, 0 );
     out.push_back( '\n' );
     return out;
