@@ -14,6 +14,11 @@ while preferring equivalent legacy syntax over deletion.
 - [Español](docs/README.es-ES.md)
 - [Italiano](docs/README.it-IT.md)
 
+Additional references:
+
+- [KiCad file format version differences](docs/kicad-file-format-version-differences.md)
+- [Localized file format version differences](docs/README.md#kicad-file-format-version-differences)
+
 ## Commands
 
 The command line interface mirrors the Go implementation and is intended to be
