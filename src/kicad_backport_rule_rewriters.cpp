@@ -5,6 +5,9 @@
 #include <array>
 #include <charconv>
 #include <cctype>
+#include <cmath>
+#include <cstdlib>
+#include <iomanip>
 #include <iterator>
 #include <map>
 #include <set>
@@ -78,6 +81,336 @@ bool equalsNoCase( std::string_view aLeft, std::string_view aRight )
     }
 
     return true;
+}
+
+
+double toDouble( std::string_view aValue, double aDefault = 0.0 )
+{
+    std::string text( aValue );
+    char* end = nullptr;
+    double value = std::strtod( text.c_str(), &end );
+
+    if( end == text.c_str() || ( end && *end != '\0' ) )
+        return aDefault;
+
+    return value;
+}
+
+
+std::string formatDouble( double aValue )
+{
+    if( std::abs( aValue ) < 0.0000000005 )
+        aValue = 0.0;
+
+    std::ostringstream out;
+    out << std::fixed << std::setprecision( 9 ) << aValue;
+    std::string text = out.str();
+
+    while( text.size() > 1 && text.back() == '0' )
+        text.pop_back();
+
+    if( !text.empty() && text.back() == '.' )
+        text.pop_back();
+
+    return text.empty() ? "0" : text;
+}
+
+
+std::unique_ptr<SEXPR::NODE> listNode( std::string aHead )
+{
+    std::unique_ptr<SEXPR::NODE> node = SEXPR::NODE::MakeList();
+    node->Children.push_back( SEXPR::NODE::MakeAtom( std::move( aHead ) ) );
+    return node;
+}
+
+
+std::unique_ptr<SEXPR::NODE> cloneAtomNode( const SEXPR::NODE* aNode )
+{
+    if( !aNode )
+        return SEXPR::NODE::MakeAtom( "" );
+
+    return SEXPR::NODE::MakeAtom( std::string( aNode->Atom ), aNode->Quoted );
+}
+
+
+int toInt( std::string_view aValue, int aDefault = 0 )
+{
+    int value = aDefault;
+    auto result = std::from_chars( aValue.data(), aValue.data() + aValue.size(), value );
+
+    if( result.ec != std::errc() || result.ptr != aValue.data() + aValue.size() )
+        return aDefault;
+
+    return value;
+}
+
+
+std::unique_ptr<SEXPR::NODE> copyDimensionLayer( SEXPR::NODE* aSource,
+                                                 SEXPR::NODE* aText )
+{
+    const SEXPR::NODE* layer = aSource ? aSource->ChildList( "layer" ) : nullptr;
+
+    if( !layer && aText )
+        layer = aText->ChildList( "layer" );
+
+    std::unique_ptr<SEXPR::NODE> out = listNode( "layer" );
+
+    if( layer && layer->Children.size() > 1 && layer->Children[1] )
+        out->Children.push_back( cloneAtomNode( layer->Children[1].get() ) );
+    else
+        out->Children.push_back( SEXPR::NODE::MakeAtom( "Dwgs.User", true ) );
+
+    return out;
+}
+
+
+double childDouble( SEXPR::NODE* aNode, const std::string& aHead, double aDefault )
+{
+    const SEXPR::NODE* child = aNode ? aNode->ChildList( aHead ) : nullptr;
+    return child ? toDouble( child->AtomAtView( 1 ), aDefault ) : aDefault;
+}
+
+
+bool dimensionPoints( SEXPR::NODE* aNode, std::array<std::array<double, 2>, 2>& aPoints )
+{
+    const SEXPR::NODE* pts = aNode ? aNode->ChildList( "pts" ) : nullptr;
+
+    if( !pts )
+        return false;
+
+    size_t count = 0;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : pts->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "xy" )
+            continue;
+
+        if( count < 2 )
+        {
+            aPoints[count][0] = toDouble( child->AtomAtView( 1 ) );
+            aPoints[count][1] = toDouble( child->AtomAtView( 2 ) );
+        }
+
+        ++count;
+
+        if( count >= 2 )
+            return true;
+    }
+
+    return false;
+}
+
+
+std::unique_ptr<SEXPR::NODE> graphicLine( const std::array<double, 2>& aStart,
+                                          const std::array<double, 2>& aEnd,
+                                          std::unique_ptr<SEXPR::NODE> aLayer,
+                                          double aWidth )
+{
+    std::unique_ptr<SEXPR::NODE> line = listNode( "gr_line" );
+
+    std::unique_ptr<SEXPR::NODE> start = listNode( "start" );
+    start->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aStart[0] ) ) );
+    start->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aStart[1] ) ) );
+
+    std::unique_ptr<SEXPR::NODE> end = listNode( "end" );
+    end->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aEnd[0] ) ) );
+    end->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aEnd[1] ) ) );
+
+    std::unique_ptr<SEXPR::NODE> stroke = listNode( "stroke" );
+    std::unique_ptr<SEXPR::NODE> width = listNode( "width" );
+    width->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aWidth ) ) );
+    std::unique_ptr<SEXPR::NODE> type = listNode( "type" );
+    type->Children.push_back( SEXPR::NODE::MakeAtom( "default" ) );
+    stroke->Children.push_back( std::move( width ) );
+    stroke->Children.push_back( std::move( type ) );
+
+    line->Children.push_back( std::move( start ) );
+    line->Children.push_back( std::move( end ) );
+    line->Children.push_back( std::move( stroke ) );
+    line->Children.push_back( std::move( aLayer ) );
+    return line;
+}
+
+
+std::array<double, 2> addScaled( const std::array<double, 2>& aPoint,
+                                 const std::array<double, 2>& aVector,
+                                 double aScale )
+{
+    return { aPoint[0] + aVector[0] * aScale, aPoint[1] + aVector[1] * aScale };
+}
+
+
+std::vector<std::unique_ptr<SEXPR::NODE>> arrowLines(
+        const std::array<double, 2>& aOrigin,
+        const std::array<double, 2>& aDirection,
+        const std::array<double, 2>& aPerpendicular,
+        SEXPR::NODE* aSource,
+        SEXPR::NODE* aText,
+        double aWidth,
+        double aArrowLength )
+{
+    constexpr double pi = 3.14159265358979323846;
+    double arrowAngle = 27.5 * pi / 180.0;
+    double arrowAlong = aArrowLength * std::cos( arrowAngle );
+    double arrowSide = aArrowLength * std::sin( arrowAngle );
+
+    auto endpoint = [&]( double aSide )
+    {
+        return std::array<double, 2>{
+            aOrigin[0] + aDirection[0] * arrowAlong + aPerpendicular[0] * aSide,
+            aOrigin[1] + aDirection[1] * arrowAlong + aPerpendicular[1] * aSide
+        };
+    };
+
+    std::vector<std::unique_ptr<SEXPR::NODE>> lines;
+    lines.push_back( graphicLine( aOrigin, endpoint( arrowSide ),
+                                  copyDimensionLayer( aSource, aText ), aWidth ) );
+    lines.push_back( graphicLine( aOrigin, endpoint( -arrowSide ),
+                                  copyDimensionLayer( aSource, aText ), aWidth ) );
+    return lines;
+}
+
+
+std::unique_ptr<SEXPR::NODE> takeChildByHead( SEXPR::NODE* aNode, const std::string& aHead )
+{
+    if( !aNode || aNode->IsAtom() )
+        return nullptr;
+
+    for( size_t i = 0; i < aNode->Children.size(); ++i )
+    {
+        std::unique_ptr<SEXPR::NODE>& child = aNode->Children[i];
+
+        if( child && !child->IsAtom() && child->HeadView() == aHead )
+        {
+            std::unique_ptr<SEXPR::NODE> out = std::move( child );
+            aNode->Children.erase( aNode->Children.begin() + i );
+            return out;
+        }
+    }
+
+    return nullptr;
+}
+
+
+void appendMoved( std::vector<std::unique_ptr<SEXPR::NODE>>& aTarget,
+                  std::vector<std::unique_ptr<SEXPR::NODE>> aSource )
+{
+    for( std::unique_ptr<SEXPR::NODE>& node : aSource )
+        aTarget.push_back( std::move( node ) );
+}
+
+
+std::vector<std::unique_ptr<SEXPR::NODE>> graphicsFromModernDimension(
+        std::unique_ptr<SEXPR::NODE> aDimension )
+{
+    std::vector<std::unique_ptr<SEXPR::NODE>> graphics;
+
+    if( !aDimension )
+        return graphics;
+
+    std::array<std::array<double, 2>, 2> points{};
+
+    if( !dimensionPoints( aDimension.get(), points ) )
+        return graphics;
+
+    SEXPR::NODE* textRaw = aDimension->ChildList( "gr_text" );
+
+    if( !textRaw )
+        return graphics;
+
+    SEXPR::NODE* style = aDimension->ChildList( "style" );
+    double thickness = childDouble( style, "thickness", 0.15 );
+    double arrowLength = childDouble( style, "arrow_length", 1.27 );
+    double extensionHeight = childDouble( style, "extension_height", 0.58642 );
+    double height = childDouble( aDimension.get(), "height", 0.0 );
+    std::string dimType = aDimension->ChildList( "type" )
+            ? aDimension->ChildList( "type" )->AtomAt( 1 ) : "aligned";
+
+    auto line = [&]( const std::array<double, 2>& aStart, const std::array<double, 2>& aEnd )
+    {
+        return graphicLine( aStart, aEnd, copyDimensionLayer( aDimension.get(), textRaw ),
+                            thickness );
+    };
+
+    std::unique_ptr<SEXPR::NODE> text = takeChildByHead( aDimension.get(), "gr_text" );
+
+    if( dimType == "radial" || dimType == "leader" )
+    {
+        graphics.push_back( std::move( text ) );
+        graphics.push_back( line( points[0], points[1] ) );
+        return graphics;
+    }
+
+    if( dimType == "orthogonal" )
+    {
+        int orientation = aDimension->ChildList( "orientation" )
+                ? toInt( aDimension->ChildList( "orientation" )->AtomAtView( 1 ) ) : 0;
+        double heightSign = height < 0.0 ? -1.0 : 1.0;
+        std::array<double, 2> crossbar1{};
+        std::array<double, 2> crossbar2{};
+        std::array<double, 2> feature1End{};
+        std::array<double, 2> feature2End{};
+        std::array<double, 2> direction1{};
+        std::array<double, 2> perpendicular{};
+
+        if( orientation == 1 )
+        {
+            crossbar1 = { points[0][0] + height, points[0][1] };
+            crossbar2 = { points[0][0] + height, points[1][1] };
+            feature1End = { points[0][0] + height + extensionHeight * heightSign, points[0][1] };
+            feature2End = { points[0][0] + height + extensionHeight * heightSign, points[1][1] };
+            direction1 = { 0.0, points[1][1] < points[0][1] ? -1.0 : 1.0 };
+            perpendicular = { 1.0, 0.0 };
+        }
+        else
+        {
+            crossbar1 = { points[0][0], points[0][1] + height };
+            crossbar2 = { points[1][0], points[0][1] + height };
+            feature1End = { points[0][0], points[0][1] + height + extensionHeight * heightSign };
+            feature2End = { points[1][0], points[0][1] + height + extensionHeight * heightSign };
+            direction1 = { points[1][0] > points[0][0] ? 1.0 : -1.0, 0.0 };
+            perpendicular = { 0.0, 1.0 };
+        }
+
+        std::array<double, 2> direction2{ -direction1[0], -direction1[1] };
+        graphics.push_back( std::move( text ) );
+        graphics.push_back( line( points[0], feature1End ) );
+        graphics.push_back( line( points[1], feature2End ) );
+        graphics.push_back( line( crossbar1, crossbar2 ) );
+        appendMoved( graphics, arrowLines( crossbar1, direction1, perpendicular, aDimension.get(),
+                                           textRaw, thickness, arrowLength ) );
+        appendMoved( graphics, arrowLines( crossbar2, direction2, perpendicular, aDimension.get(),
+                                           textRaw, thickness, arrowLength ) );
+        return graphics;
+    }
+
+    double dx = points[1][0] - points[0][0];
+    double dy = points[1][1] - points[0][1];
+    double length = std::hypot( dx, dy );
+
+    graphics.push_back( std::move( text ) );
+
+    if( length <= 0.0 )
+        return graphics;
+
+    std::array<double, 2> unit{ dx / length, dy / length };
+    std::array<double, 2> perpendicular{ -unit[1], unit[0] };
+    double heightSign = height < 0.0 ? -1.0 : 1.0;
+    std::array<double, 2> feature1End = addScaled( points[0], perpendicular,
+                                                   height + extensionHeight * heightSign );
+    std::array<double, 2> feature2End = addScaled( points[1], perpendicular,
+                                                   height + extensionHeight * heightSign );
+    std::array<double, 2> crossbar1 = addScaled( points[0], perpendicular, height );
+    std::array<double, 2> crossbar2 = addScaled( points[1], perpendicular, height );
+
+    graphics.push_back( line( points[0], feature1End ) );
+    graphics.push_back( line( points[1], feature2End ) );
+    graphics.push_back( line( crossbar1, crossbar2 ) );
+    appendMoved( graphics, arrowLines( crossbar1, unit, perpendicular, aDimension.get(), textRaw,
+                                       thickness, arrowLength ) );
+    appendMoved( graphics, arrowLines( crossbar2, { -unit[0], -unit[1] }, perpendicular,
+                                       aDimension.get(), textRaw, thickness, arrowLength ) );
+    return graphics;
 }
 
 } // namespace
@@ -1534,6 +1867,49 @@ int downgradeDimensionsToTextImpl( SEXPR::NODE* aRoot, bool aInsideFootprint )
 int downgradeDimensionsToText( SEXPR::NODE* aRoot )
 {
     return downgradeDimensionsToTextImpl( aRoot, false );
+}
+
+
+int downgradeDimensionsToGraphicsImpl( SEXPR::NODE* aRoot,
+                                       std::vector<std::unique_ptr<SEXPR::NODE>>& aGraphics )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    kept.reserve( aRoot->Children.size() );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "dimension" )
+        {
+            appendMoved( aGraphics, graphicsFromModernDimension( std::move( child ) ) );
+            ++changed;
+            continue;
+        }
+
+        changed += downgradeDimensionsToGraphicsImpl( child.get(), aGraphics );
+        kept.push_back( std::move( child ) );
+    }
+
+    aRoot->Children = std::move( kept );
+    return changed;
+}
+
+
+int downgradeDimensionsToGraphics( SEXPR::NODE* aRoot )
+{
+    std::vector<std::unique_ptr<SEXPR::NODE>> graphics;
+    int changed = downgradeDimensionsToGraphicsImpl( aRoot, graphics );
+
+    if( aRoot && !aRoot->IsAtom() && aRoot->HeadView() == "kicad_pcb" )
+    {
+        for( std::unique_ptr<SEXPR::NODE>& graphic : graphics )
+            aRoot->Children.push_back( std::move( graphic ) );
+    }
+
+    return changed;
 }
 
 

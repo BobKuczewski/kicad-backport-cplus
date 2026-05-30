@@ -331,6 +331,10 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                          "removed PCB graphic shape net connectivity fields" );
         addChildRemoval( aTarget < 20240108, { "group" }, { "locked" },
                          "removed group locked fields" );
+        addChildRemoval( aTarget < 20240108, { "via" },
+                         { "remove_unused_layers", "keep_end_layers", "start_end_only",
+                           "zone_layer_connections" },
+                         "removed legacy via layer-connection fields" );
         addChildRemoval( aTarget < 20250324, { "footprint" },
                          { "duplicate_pad_numbers_are_jumpers", "jumper_pad_groups" },
                          "removed footprint jumper pad fields" );
@@ -426,6 +430,16 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         warnIfChanged( boardFastCounts.RenamedGroupGeneratedUuidToId,
                        "renamed board group/generated uuid fields back to id" );
 
+        applyWhen( aTarget < 20240225,
+                   [&]()
+                   {
+                       return renameChildHeadInParents( aDocument.Root.get(),
+                                                        { "footprint", "module", "pad" },
+                                                        "solder_paste_margin_ratio",
+                                                        "solder_paste_ratio" );
+                   },
+                   "renamed solder_paste_margin_ratio fields to legacy solder_paste_ratio" );
+
         applyWhen( aTarget < 20250309 && aTarget >= 20240928,
                    [&]()
                    {
@@ -437,8 +451,8 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         // KiCad 7 PCB syntax needs several legacy cleanups at the same cutoff.
         if( aTarget <= 20221018 )
         {
-            int n = downgradeDimensionsToText( aDocument.Root.get() );
-            warnIfChanged( n, "downgraded PCB dimensions to legacy text annotations" );
+            int n = downgradeDimensionsToGraphics( aDocument.Root.get() );
+            warnIfChanged( n, "downgraded PCB dimensions to legacy graphic annotations" );
         }
 
         // Pad/via post-machining fields are already removed by the broad feature gate above.

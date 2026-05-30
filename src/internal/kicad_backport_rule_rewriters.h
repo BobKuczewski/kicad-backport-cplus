@@ -103,6 +103,7 @@ int downgradePCBShapeFillNoToNone( SEXPR::NODE* aRoot );
 int downgradePCBShapeHatchFills( SEXPR::NODE* aRoot );
 int ensureZoneFilledAreasThickness( SEXPR::NODE* aRoot );
 int downgradeDimensionsToText( SEXPR::NODE* aRoot );
+int downgradeDimensionsToGraphics( SEXPR::NODE* aRoot );
 int downgradeBoardNetNamesToCodes( SEXPR::NODE* aRoot );
 
 std::vector<std::string> removeIntroduced( SEXPR::NODE* aRoot, int aTarget,
