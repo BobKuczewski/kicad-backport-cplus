@@ -1,6 +1,8 @@
 #include "kicad_backport/kicad_backport.h"
+#include "kicad_backport/kicad_backport_legacy.h"
 #include "kicad_backport/kicad_backport_report.h"
 #include "kicad_backport/kicad_backport_rules.h"
+#include "kicad_backport/kicad_backport_upgrade.h"
 #include "kicad_backport/kicad_backport_util.h"
 #include "kicad_backport/kicad_backport_versions.h"
 
@@ -9,11 +11,13 @@
 #include <atomic>
 #include <cstdlib>
 #include <iostream>
+#include <map>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 
 
 namespace KICAD_BACKPORT
@@ -46,6 +50,348 @@ bool timingEnabled()
 }
 
 
+bool isLibraryTablePath( const std::filesystem::path& aPath )
+{
+    std::string name = Lower( aPath.filename().string() );
+    return name == "sym-lib-table" || name == "fp-lib-table";
+}
+
+
+int removeDirectChildByHead( SEXPR::NODE* aRoot, const std::string& aHead )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int removed = 0;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    kept.reserve( aRoot->Children.size() );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == aHead )
+        {
+            ++removed;
+            continue;
+        }
+
+        kept.push_back( std::move( child ) );
+    }
+
+    aRoot->Children = std::move( kept );
+    return removed;
+}
+
+
+void normalizeLegacyLibraryTable( const std::filesystem::path& aPath )
+{
+    std::string text = ReadTextFile( aPath );
+    std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( text );
+
+    if( removeDirectChildByHead( root.get(), "version" ) > 0 )
+        WriteTextFile( aPath, SEXPR::Format( root.get(), text.size() ) );
+}
+
+
+std::unique_ptr<SEXPR::NODE> listNode( const std::string& aHead )
+{
+    std::unique_ptr<SEXPR::NODE> node = SEXPR::NODE::MakeList();
+    node->Children.push_back( SEXPR::NODE::MakeAtom( aHead ) );
+    return node;
+}
+
+
+std::string childAtomOrEmpty( SEXPR::NODE* aNode, const std::string& aHead,
+                              size_t aIndex = 1 )
+{
+    SEXPR::NODE* child = aNode ? aNode->ChildList( aHead ) : nullptr;
+    return child ? child->AtomAt( aIndex ) : "";
+}
+
+
+std::string schematicPropertyValue( SEXPR::NODE* aNode, const std::string& aName )
+{
+    if( !aNode )
+        return "";
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "property"
+            && child->AtomAt( 1 ) == aName )
+        {
+            return child->AtomAt( 2 );
+        }
+    }
+
+    return "";
+}
+
+
+std::string sheetFilePropertyValue( SEXPR::NODE* aSheet )
+{
+    std::string file = schematicPropertyValue( aSheet, "Sheet file" );
+
+    if( file.empty() )
+        file = schematicPropertyValue( aSheet, "Sheetfile" );
+
+    return file;
+}
+
+
+std::string appendInstanceUuid( const std::string& aPrefix, const std::string& aUuid )
+{
+    if( aUuid.empty() )
+        return aPrefix.empty() ? "/" : aPrefix;
+
+    if( aPrefix.empty() || aPrefix == "/" )
+        return "/" + aUuid;
+
+    return aPrefix + "/" + aUuid;
+}
+
+
+std::unique_ptr<SEXPR::NODE> sheetInstanceNode( const std::string& aPath,
+                                                const std::string& aPage )
+{
+    std::unique_ptr<SEXPR::NODE> node = listNode( "path" );
+    node->Children.push_back( SEXPR::NODE::MakeAtom( aPath, true ) );
+
+    std::unique_ptr<SEXPR::NODE> page = listNode( "page" );
+    page->Children.push_back( SEXPR::NODE::MakeAtom( aPage.empty() ? "1" : aPage, true ) );
+    node->Children.push_back( std::move( page ) );
+    return node;
+}
+
+
+std::unique_ptr<SEXPR::NODE> symbolInstanceNode( const std::string& aPath,
+                                                 SEXPR::NODE* aSymbol )
+{
+    std::unique_ptr<SEXPR::NODE> node = listNode( "path" );
+    node->Children.push_back( SEXPR::NODE::MakeAtom( aPath, true ) );
+
+    auto appendQuoted = [&]( const std::string& aHead, const std::string& aValue )
+    {
+        std::unique_ptr<SEXPR::NODE> child = listNode( aHead );
+        child->Children.push_back( SEXPR::NODE::MakeAtom( aValue, true ) );
+        node->Children.push_back( std::move( child ) );
+    };
+
+    std::string unit = childAtomOrEmpty( aSymbol, "unit" );
+
+    if( unit.empty() )
+        unit = "1";
+
+    appendQuoted( "reference", schematicPropertyValue( aSymbol, "Reference" ) );
+
+    std::unique_ptr<SEXPR::NODE> unitNode = listNode( "unit" );
+    unitNode->Children.push_back( SEXPR::NODE::MakeAtom( unit ) );
+    node->Children.push_back( std::move( unitNode ) );
+
+    appendQuoted( "value", schematicPropertyValue( aSymbol, "Value" ) );
+    appendQuoted( "footprint", schematicPropertyValue( aSymbol, "Footprint" ) );
+    return node;
+}
+
+
+std::map<std::string, std::string> existingSheetInstancePages( SEXPR::NODE* aRoot )
+{
+    std::map<std::string, std::string> pages;
+    SEXPR::NODE* sheetInstances = aRoot ? aRoot->ChildList( "sheet_instances" ) : nullptr;
+
+    if( !sheetInstances )
+        return pages;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : sheetInstances->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "path" )
+            continue;
+
+        std::string path = child->AtomAt( 1 );
+        std::string page = childAtomOrEmpty( child.get(), "page" );
+
+        if( !path.empty() && !page.empty() )
+            pages[path] = page;
+    }
+
+    return pages;
+}
+
+
+int nextSheetPage( const std::map<std::string, std::string>& aExistingPages )
+{
+    int page = 2;
+
+    for( const auto& item : aExistingPages )
+    {
+        try
+        {
+            page = std::max( page, std::stoi( item.second ) + 1 );
+        }
+        catch( const std::exception& )
+        {
+        }
+    }
+
+    return page;
+}
+
+
+struct SCH_HIERARCHY_INSTANCE_BUILD
+{
+    std::unique_ptr<SEXPR::NODE> SheetInstances = listNode( "sheet_instances" );
+    std::unique_ptr<SEXPR::NODE> SymbolInstances = listNode( "symbol_instances" );
+    std::map<std::string, std::string> ExistingPages;
+    std::set<std::string> AddedSheetPaths;
+    std::set<std::string> ActiveFiles;
+    int NextPage = 2;
+};
+
+
+void collectKiCad6HierarchyInstances( const std::filesystem::path& aSchematic,
+                                      SEXPR::NODE* aRoot,
+                                      const std::string& aPrefix,
+                                      SCH_HIERARCHY_INSTANCE_BUILD& aBuild )
+{
+    for( const std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "symbol"
+            && child->ChildList( "lib_id" ) )
+        {
+            std::string uuid = childAtomOrEmpty( child.get(), "uuid" );
+
+            if( !uuid.empty() )
+            {
+                aBuild.SymbolInstances->Children.push_back(
+                        symbolInstanceNode( appendInstanceUuid( aPrefix, uuid ), child.get() ) );
+            }
+        }
+    }
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "sheet" )
+            continue;
+
+        std::string uuid = childAtomOrEmpty( child.get(), "uuid" );
+
+        if( uuid.empty() )
+            continue;
+
+        std::string sheetPath = appendInstanceUuid( aPrefix, uuid );
+
+        if( aBuild.AddedSheetPaths.insert( sheetPath ).second )
+        {
+            std::string page;
+            auto found = aBuild.ExistingPages.find( sheetPath );
+
+            if( found != aBuild.ExistingPages.end() )
+                page = found->second;
+            else
+                page = std::to_string( aBuild.NextPage++ );
+
+            aBuild.SheetInstances->Children.push_back( sheetInstanceNode( sheetPath, page ) );
+        }
+
+        std::string sheetFile = sheetFilePropertyValue( child.get() );
+
+        if( sheetFile.empty() )
+            continue;
+
+        std::filesystem::path childPath = aSchematic.parent_path() / sheetFile;
+
+        if( !std::filesystem::exists( childPath ) )
+            continue;
+
+        std::string activeKey = std::filesystem::absolute( childPath ).lexically_normal().string();
+
+        if( aBuild.ActiveFiles.count( activeKey ) != 0 )
+            continue;
+
+        aBuild.ActiveFiles.insert( activeKey );
+
+        std::string text = ReadTextFile( childPath );
+        std::unique_ptr<SEXPR::NODE> childRoot = SEXPR::Parse( text );
+        collectKiCad6HierarchyInstances( childPath, childRoot.get(), sheetPath, aBuild );
+
+        aBuild.ActiveFiles.erase( activeKey );
+    }
+}
+
+
+bool hasTopLevelSheet( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return false;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "sheet" )
+            return true;
+    }
+
+    return false;
+}
+
+
+void replaceRootInstances( SEXPR::NODE* aRoot, SCH_HIERARCHY_INSTANCE_BUILD& aBuild )
+{
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    kept.reserve( aRoot->Children.size() + 2 );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom()
+            && ( child->HeadView() == "sheet_instances"
+                 || child->HeadView() == "symbol_instances" ) )
+        {
+            continue;
+        }
+
+        kept.push_back( std::move( child ) );
+    }
+
+    kept.push_back( std::move( aBuild.SheetInstances ) );
+    kept.push_back( std::move( aBuild.SymbolInstances ) );
+    aRoot->Children = std::move( kept );
+}
+
+
+bool rebuildKiCad6HierarchyInstances( const std::filesystem::path& aRootSchematic )
+{
+    std::string text = ReadTextFile( aRootSchematic );
+    std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( text );
+
+    if( !root || root->HeadView() != "kicad_sch" || !root->ChildList( "sheet_instances" )
+        || !hasTopLevelSheet( root.get() ) )
+    {
+        return false;
+    }
+
+    SCH_HIERARCHY_INSTANCE_BUILD build;
+    build.ExistingPages = existingSheetInstancePages( root.get() );
+    build.NextPage = nextSheetPage( build.ExistingPages );
+    build.SheetInstances->Children.push_back( sheetInstanceNode( "/", "1" ) );
+    build.AddedSheetPaths.insert( "/" );
+    build.ActiveFiles.insert( std::filesystem::absolute( aRootSchematic ).lexically_normal().string() );
+
+    collectKiCad6HierarchyInstances( aRootSchematic, root.get(), "", build );
+    replaceRootInstances( root.get(), build );
+    WriteTextFile( aRootSchematic, SEXPR::Format( root.get(), text.size() ) );
+    return true;
+}
+
+
+void rebuildKiCad6ProjectHierarchyInstances( const std::vector<PROJECT_COPY_ENTRY>& aEntries )
+{
+    for( const PROJECT_COPY_ENTRY& entry : aEntries )
+    {
+        if( Lower( entry.Output.extension().string() ) != ".kicad_sch" )
+            continue;
+
+        rebuildKiCad6HierarchyInstances( entry.Output );
+    }
+}
+
+
 DOCUMENT loadDocumentImpl( const std::filesystem::path& aPath, long long* aReadUs,
                            long long* aParseUs )
 {
@@ -57,6 +403,21 @@ DOCUMENT loadDocumentImpl( const std::filesystem::path& aPath, long long* aReadU
     CLOCK::time_point readEnd = CLOCK::now();
 
     doc.SourceBytes = text.size();
+
+    KIND extensionKind = DetectKind( aPath, std::string() );
+
+    if( IsLegacyKind( extensionKind ) )
+    {
+        doc = LoadLegacyDocument( aPath, std::move( text ) );
+
+        if( aReadUs )
+            *aReadUs = elapsedMicros( readStart, readEnd );
+
+        if( aParseUs )
+            *aParseUs = 0;
+
+        return doc;
+    }
 
     CLOCK::time_point parseStart = CLOCK::now();
     doc.Root = SEXPR::Parse( text );
@@ -141,7 +502,7 @@ int CONVERTER::Run( int aArgc, char** aArgv )
 void CONVERTER::printUsage() const
 {
     std::cerr << "usage:\n";
-    std::cerr << "  kicad-backport convert [--quiet] --target-version <7.0|8.0|9.0|10.0|number> <input> <output>\n";
+    std::cerr << "  kicad-backport convert [--quiet] --target-version <6.0|7.0|8.0|9.0|10.0|number> <input> <output>\n";
     std::cerr << "  kicad-backport inspect <input>\n";
     std::cerr << "  kicad-backport version\n";
 }
@@ -193,25 +554,37 @@ FILE_REPORT CONVERTER::normalizeFile( const std::filesystem::path& aInput,
     DOCUMENT doc = loadDocumentImpl( aInput, &readUs, &parseUs );
     FILE_REPORT report;
     report.Path = aOutput.string();
+    report.InputPath = aInput.string();
+    report.OutputPath = aOutput.string();
     report.Kind = KindName( doc.Kind );
+    report.SourceKind = report.Kind;
+    report.TargetKind = report.Kind;
     report.SourceVersion = doc.Version;
+
+    if( IsLegacyKind( doc.Kind ) )
+        throw std::runtime_error( "legacy KiCad " + report.Kind
+                                  + " conversion is not implemented in Phase 0-3" );
 
     std::string resolved = ResolveTargetVersion( doc.Kind, aTarget );
     int source = IsNumber( doc.Version ) ? std::stoi( doc.Version ) : 0;
     int target = std::stoi( resolved );
 
-    // Do not upgrade older source files when the requested target is newer.
-    if( source > 0 && source < target )
+    if( source > 0 && source == target )
     {
         if( aInput != aOutput )
             std::filesystem::copy_file( aInput, aOutput, std::filesystem::copy_options::overwrite_existing );
 
-        report.TargetVersion = doc.Version;
+        report.TargetVersion = resolved;
         return report;
     }
 
     CLOCK::time_point rulesStart = CLOCK::now();
-    report.Warnings = ApplyDowngradeRules( doc, target );
+
+    if( source > 0 && source < target )
+        report.Warnings = ApplyUpgradeRules( doc, target );
+    else
+        report.Warnings = ApplyDowngradeRules( doc, target );
+
     CLOCK::time_point rulesEnd = CLOCK::now();
     rulesUs = elapsedMicros( rulesStart, rulesEnd );
 
@@ -249,7 +622,8 @@ bool CONVERTER::isKiCadDocumentPath( const std::filesystem::path& aPath ) const
 {
     std::string ext = Lower( aPath.extension().string() );
     return ext == ".kicad_sch" || ext == ".kicad_pcb" || ext == ".kicad_sym"
-           || ext == ".kicad_mod" || ext == ".kicad_dru" || ext == ".kicad_wks";
+           || ext == ".kicad_mod" || ext == ".kicad_dru" || ext == ".kicad_wks"
+           || ext == ".sch" || ext == ".lib" || ext == ".dcm" || ext == ".pro";
 }
 
 
@@ -383,8 +757,9 @@ void printReportWarnings( const std::vector<FILE_REPORT>& aReports )
 void CONVERTER::ensureLegacyProjectLocalSettings( const std::filesystem::path& aPath,
                                                   const std::string& aTargetSuffix ) const
 {
-    // KiCad 7/8 may hide converted through-hole pads without legacy PRL visibility data.
-    int metaVersion = aTargetSuffix == "V8" ? 3 : 4;
+    // KiCad 6/7/8 expect numeric visible item IDs; newer string IDs hide many objects.
+    int metaVersion = ( aTargetSuffix == "V6" || aTargetSuffix == "V7"
+                        || aTargetSuffix == "V8" ) ? 3 : 4;
 
     std::ostringstream out;
     out << "{\n";
@@ -392,8 +767,9 @@ void CONVERTER::ensureLegacyProjectLocalSettings( const std::filesystem::path& a
     out << "    \"visible_items\": [\n";
 
     const int items[] = {
-        0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 19,
-        20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 35, 36, 39, 40, 41
+        0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 35,
+        36, 37, 38, 39, 40, 41
     };
 
     for( size_t i = 0; i < sizeof( items ) / sizeof( items[0] ); ++i )
@@ -550,12 +926,23 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
 
         std::string suffix = TargetVersionSuffix( target );
 
-        if( suffix == "V7" || suffix == "V8" )
+        if( suffix == "V6" || suffix == "V7" || suffix == "V8" )
         {
             for( const PROJECT_COPY_ENTRY& entry : copied )
             {
                 if( Lower( entry.Output.extension().string() ) == ".kicad_pcb" )
                     ensureLegacyProjectLocalSettings( ReplaceExtension( entry.Output, ".kicad_prl" ), suffix );
+            }
+        }
+
+        if( suffix == "V6" )
+        {
+            rebuildKiCad6ProjectHierarchyInstances( copied );
+
+            for( const PROJECT_COPY_ENTRY& entry : copied )
+            {
+                if( !entry.IsDocument && isLibraryTablePath( entry.Output ) )
+                    normalizeLegacyLibraryTable( entry.Output );
             }
         }
     }
@@ -568,7 +955,8 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
 
         std::string suffix = TargetVersionSuffix( target );
 
-        if( ( suffix == "V7" || suffix == "V8" ) && Lower( output.extension().string() ) == ".kicad_pcb" )
+        if( ( suffix == "V6" || suffix == "V7" || suffix == "V8" )
+            && Lower( output.extension().string() ) == ".kicad_pcb" )
             ensureLegacyProjectLocalSettings( ReplaceExtension( output, ".kicad_prl" ), suffix );
     }
 
@@ -601,7 +989,15 @@ std::vector<FILE_REPORT> CONVERTER::inspectPath( const std::filesystem::path& aP
     if( !std::filesystem::is_directory( aPath ) && Lower( aPath.extension().string() ) != ".kicad_pro" )
     {
         DOCUMENT doc = loadDocument( aPath );
-        reports.push_back( FILE_REPORT{ aPath.string(), KindName( doc.Kind ), doc.Version, "", false, {} } );
+        FILE_REPORT report;
+        report.Path = aPath.string();
+        report.InputPath = aPath.string();
+        report.OutputPath = aPath.string();
+        report.Kind = KindName( doc.Kind );
+        report.SourceKind = report.Kind;
+        report.TargetKind = report.Kind;
+        report.SourceVersion = doc.Version;
+        reports.push_back( std::move( report ) );
         return reports;
     }
 
@@ -614,7 +1010,15 @@ std::vector<FILE_REPORT> CONVERTER::inspectPath( const std::filesystem::path& aP
             continue;
 
         DOCUMENT doc = loadDocument( entry.path() );
-        reports.push_back( FILE_REPORT{ entry.path().string(), KindName( doc.Kind ), doc.Version, "", false, {} } );
+        FILE_REPORT report;
+        report.Path = entry.path().string();
+        report.InputPath = entry.path().string();
+        report.OutputPath = entry.path().string();
+        report.Kind = KindName( doc.Kind );
+        report.SourceKind = report.Kind;
+        report.TargetKind = report.Kind;
+        report.SourceVersion = doc.Version;
+        reports.push_back( std::move( report ) );
     }
 
     return reports;

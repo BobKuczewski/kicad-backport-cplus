@@ -9,9 +9,12 @@ set( CMAKE_CXX_EXTENSIONS OFF )
 add_executable( kicad-backport
     src/kicad_backport.cpp
     src/kicad_backport_document.cpp
+    src/kicad_backport_legacy.cpp
+    src/kicad_backport_pathmap.cpp
     src/kicad_backport_report.cpp
     src/kicad_backport_rule_rewriters.cpp
     src/kicad_backport_rules.cpp
+    src/kicad_backport_upgrade.cpp
     src/kicad_backport_util.cpp
     src/kicad_backport_versions.cpp
     src/main.cpp

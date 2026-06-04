@@ -1,58 +1,73 @@
 # KiCad 文件格式版本差异
 
-本文是 [英文基准文档](kicad-file-format-version-differences.md) 的简体中文版本，覆盖 V4/V5 legacy 格式、V6-V10 稳定版本矩阵、当前 development 分支边界和 backport 检查清单。KiCad 的 S-expression token、源码宏、文件扩展名和版本号保持英文原样，便于检索和对照源码。
+本文档跟踪backport使用的 KiCad 文件格式版本差异
+converter。它的组织方式是为了可以添加更新的稳定版本或开发版本
+无需重命名该文件。
 
-最后更新：2026-06-04。
+最后更新：2026-06-05。
 
-## 来源和口径
+## 来源和方法
 
-已核对的本地 KiCad 仓库与分支：
+审查来源：
 
-- `E:/WORKS/MY/kicadProject/kicad`
-- `origin/4.0`, `4.0.0`
-- `origin/5.0`, `origin/5.1`, `5.0.0`, `5.1.0`
-- `6.0.0`, `7.0.0`, `8.0.0`, `9.0.0`, `10.0.0`, `origin/10.0`
-- 当前 `master` 仅用于识别 10.0 后开发项边界，不纳入 KiCad 10.0 稳定版差异
-
-主要源码证据：
-
-- KiCad 4/5 PCB：`pcbnew/kicad_plugin.h`
-- KiCad 6/7 PCB：`pcbnew/plugins/kicad/pcb_plugin.h`
-- KiCad 8/9/10 PCB：`pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h`
-- KiCad 4/5 legacy 原理图：`eeschema/general.h`, `eeschema/sch_legacy_plugin.h`
-- KiCad 6 以后原理图/符号库：`eeschema/sch_file_versions.h`
-- 图框：`include/drawing_sheet/ds_file_versions.h`
-- 设计规则：`pcbnew/drc/drc_rule_parser.h`
-- 旧格式示例：`demos/**.sch`, `demos/**.lib`, `demos/**.kicad_pcb`
-- `kicad-backport-cplus` 实现：
+- KiCad 官方 GitLab 标签和源文件。
+- 本地 KiCad checkout 位于 `E:/WORKS/MY/kicadProject/kicad`。
+- 本地引用和标签：`origin/4.0`、`4.0.0`、`origin/5.0`、`origin/5.1`、
+  `5.0.0`, `5.1.0`, `6.0.0`, `7.0.0`, `8.0.0`, `9.0.0`, `10.0.0`,
+和 `origin/10.0`。
+- 本地 KiCad `master`，仅用于识别 10.0 后的开发分支
+边界。
+- `kicad-backport-cplus` 实现，特别是：
   - `src/kicad_backport_versions.cpp`
   - `src/kicad_backport_rules.cpp`
   - `src/kicad_backport_rule_rewriters.cpp`
+  - `src/kicad_backport_upgrade.cpp`
   - `src/kicad_backport.cpp`
+- 版本头文件：
+  - `pcbnew/kicad_plugin.h` 适用于 KiCad 4/5 PCB 格式。
+  - `pcbnew/plugins/kicad/pcb_plugin.h` 适用于 KiCad 6/7 PCB 格式。
+  - `eeschema/sch_file_versions.h`
+  - `pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h`
+  - `include/drawing_sheet/ds_file_versions.h`
+  - `pcbnew/drc/drc_rule_parser.h`
+  - KiCad 4/5 的 `eeschema/general.h` 和 `eeschema/sch_legacy_plugin.h`
+传统原理图格式。
 
-说明：
+版本号取自活动的 KiCad 源宏：
 
-- `.kicad_pcb` 和 `.kicad_mod` 共用 PCB S-expression 版本号。
-- KiCad 4/5 的原理图和符号库不是 `.kicad_sch`/`.kicad_sym`，而是 legacy 文本格式 `.sch`/`.lib`/`.dcm`。
-- KiCad 6.0 是最大格式分界点：项目、原理图、符号库、PCB、封装和图框都进入 KiCad 6 风格的 S-expression/JSON 文件族。
-- `.kicad_pro` 是 JSON 项目文件，走 settings/schema migration，不使用 S-expression 日期版本宏。
-- `.kicad_dru` 从 KiCad 6.0 到 10.0 稳定版中版本宏保持 `20200610`，但规则语义仍可能随 PCB 对象模型变化。
+- `SEXPR_SYMBOL_LIB_FILE_VERSION`
+- `SEXPR_SCHEMATIC_FILE_VERSION`
+- `SEXPR_BOARD_FILE_VERSION`
+- `SEXPR_WORKSHEET_FILE_VERSION`
+- `DRC_RULE_FILE_VERSION`
 
-## 主版本文件族矩阵
+笔记：
 
-| KiCad 主版本 | 项目文件 | 原理图 | 符号库 | PCB/封装 | 图框 | 设计规则 | 关键结论 |
+- 板 S 表达式版本还涵盖封装 `.kicad_mod` 文件。
+- 从 KiCad 6.0 到当前的 10.99 源，`.kicad_dru` 一直保持在 `20200610`。
+这仅意味着版本宏没有改变；规则语义可能仍然有
+改变了。
+- `.kicad_pro` 是一个 JSON 项目文件，并使用设置/架构迁移
+这些 S 表达式日期版本宏。项目 JSON 架构差异
+应单独跟踪。
+- KiCad 4/5 原理图和符号库是旧版 `.sch`、`.lib` 和
+`.dcm` 文件，而不是 `.kicad_sch` 或 `.kicad_sym`。
+
+## 主要文件族矩阵
+
+| KiCad 主要版本 | 项目 | 示意图 | 符号库 | PCB/封装 | 工作表 | 设计规则 | 关键点 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 4.0 | `.pro` legacy | `.sch` legacy, `EESCHEMA_VERSION=2` | `.lib` `EESchema-LIBRARY Version 2.3`, `.dcm` | `.kicad_pcb`/`.kicad_mod` S-expression, version `4` | legacy drawing sheet | 无独立 `.kicad_dru` | PCB 已是 S-expression；原理图/符号库仍是 legacy。 |
-| 5.0/5.1 | `.pro` legacy | `.sch` legacy, `EESCHEMA_VERSION=4` | `.lib` 常见 `Version 2.4`, `.dcm` | `.kicad_pcb`/`.kicad_mod` S-expression, version `20171130` | legacy drawing sheet | 无独立 `.kicad_dru` | PCB 增加自定义焊盘、keepout、多层 keepout、3D model mm offset 等；原理图仍未 S-expression 化。 |
-| 6.0 | `.kicad_pro` JSON, `.kicad_prl` JSON | `.kicad_sch` `20211123` | `.kicad_sym` `20211014` | `20211014` | `.kicad_wks` `20210606` | `.kicad_dru` `20200610` | 新原理图/符号库格式上线；旧 `.sch`/`.lib` 作为 legacy 输入迁移。 |
-| 7.0 | `.kicad_pro` JSON | `.kicad_sch` `20230121` | `.kicad_sym` `20220914` | `20221018` | `.kicad_wks` `20220228` | `20200610` | 增加文字盒、字体、DNP、仿真模型、net-tie、图像、teardrop 关键字等。 |
-| 8.0 | `.kicad_pro` JSON | `.kicad_sch` `20231120` | `.kicad_sym` `20231120` | `20240108` | `.kicad_wks` `20231118` | `20200610` | `generator_version` 和 V8 格式清理；PCB 字段、生成对象、UUID 规范化、teardrop 显式布尔。 |
-| 9.0 | `.kicad_pro` JSON | `.kicad_sch` `20250114` | `.kicad_sym` `20241209` | `20241229` | `.kicad_wks` `20231118` | `20200610` | 嵌入文件、表格、规则区域、组件类、复杂 padstack、via stack、任意用户层等。 |
-| 10.0 | `.kicad_pro` JSON | `.kicad_sch` `20260306` | `.kicad_sym` `20251024` | `20260206` | `.kicad_wks` `20231118` | `20200610` | 变体、跳线焊盘、条码、via 保护、backdrill、拆分 via 类型、netcode 停写等。 |
+| 4.0 | 旧版 `.pro` | 旧版 `.sch`、`EESCHEMA_VERSION=2` | `.lib` `EESchema-LIBRARY Version 2.3`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S 表达式，版本 `4` | 旧图纸 | 没有独立的 `.kicad_dru` | PCB已经是S-表达；原理图和符号库仍然是遗留物。 |
+| 5.0 / 5.1 | 旧版 `.pro` | 旧版 `.sch`、`EESCHEMA_VERSION=4` | 常见的有`.lib`、`Version 2.4`、`.dcm` | `.kicad_pcb` / `.kicad_mod` S 表达式，版本 `20171130` | 旧图纸 | 没有独立的 `.kicad_dru` | PCB 添加了自定义焊盘、多层禁止区和 3D 模型偏移更改；原理图仍然是遗产。 |
+| 6.0 | JSON `.kicad_pro`、`.kicad_prl` | `.kicad_sch` `20211123` | `.kicad_sym` `20211014` | `20211014` | `.kicad_wks` `20210606` | `.kicad_dru` `20200610` | 新的原理图和符号 S 表达式格式。 |
+| 7.0 | JSON `.kicad_pro` | `.kicad_sch` `20230121` | `.kicad_sym` `20220914` | `20221018` | `.kicad_wks` `20220228` | `20200610` | 文本框、字体、DNP、模拟模型更改、网络联系、图像、泪滴关键字。 |
+| 8.0 | JSON `.kicad_pro` | `.kicad_sch` `20231120` | `.kicad_sym` `20231120` | `20240108` | `.kicad_wks` `20231118` | `20200610` | `generator_version`、V8 清理、PCB 字段、生成的对象、UUID 规范化。 |
+| 9.0 | JSON `.kicad_pro` | `.kicad_sch` `20250114` | `.kicad_sym` `20241209` | `20241229` | `.kicad_wks` `20231118` | `20200610` | 嵌入式文件、表格、规则区域、组件类、焊盘堆栈、过孔堆栈、任意用户层。 |
+| 10.0 | JSON `.kicad_pro` | `.kicad_sch` `20260306` | `.kicad_sym` `20251024` | `20260206` | `.kicad_wks` `20231118` | `20200610` | 变体、跳线垫、条形码、过孔保护、背钻、分割过孔类型、停止写入网络代码。 |
 
-## 稳定版 S-expression 版本矩阵
+## 稳定版本矩阵
 
-| KiCad tag | `.kicad_sym` | `.kicad_sch` | `.kicad_pcb` / `.kicad_mod` | `.kicad_wks` | `.kicad_dru` |
+| KiCad 标签 | `.kicad_sym` | `.kicad_sch` | `.kicad_pcb` / `.kicad_mod` | `.kicad_wks` | `.kicad_dru` |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `6.0.0` | 20211014 | 20211123 | 20211014 | 20210606 | 20200610 |
 | `7.0.0` | 20220914 | 20230121 | 20221018 | 20220228 | 20200610 |
@@ -60,441 +75,339 @@
 | `9.0.0` | 20241209 | 20250114 | 20241229 | 20231118 | 20200610 |
 | `10.0.0` | 20251024 | 20260306 | 20260206 | 20231118 | 20200610 |
 
-## V4/V5 legacy 分界
+## KiCad 4/5 旧版边界
 
-### KiCad 4.0
+KiCad 4 和 5 不仅仅是用于原理图数据的旧 S 表达式版本。他们
+使用不同的原理图和符号库文件系列：
 
-| 类型 | KiCad 4.0 格式特征 |
-| --- | --- |
-| 项目 | `.pro` legacy，不是 `.kicad_pro` JSON |
-| 原理图 | `.sch`，文件头 `EESchema Schematic File Version 2`，版本宏 `EESCHEMA_VERSION 2`，示例常见 `EELAYER 25 0` |
-| 符号库 | `.lib`/`.dcm`，常见头部 `EESchema-LIBRARY Version 2.3` |
-| PCB/封装 | `.kicad_pcb`/`.kicad_mod` S-expression，版本 `4` |
-
-PCB/封装版本点：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 3 | 第一个 PCB S-expression 格式，仍使用 legacy copper stack |
-| 4 | 反转铜层栈，`Inner*` 改为反序 `In*`，铜层从 16 层扩展到 32 层 |
-
-回退要点：
-
-- 回退到 V4 原理图和符号库时不能只改 `version`，必须生成 legacy `.sch` 和 `.lib`/`.dcm`。
-- V6+ 的 UUID、图元对象、文本盒、规则区域、嵌入文件、变体等都不能直接映射到 V4。
-- V4 PCB 根节点示例为 `(kicad_pcb (version 4) (host pcbnew "...") ...)`，`host` 字段仍存在。
-
-### KiCad 5.0/5.1
-
-| 类型 | KiCad 5.x 格式特征 |
-| --- | --- |
-| 项目 | `.pro` legacy |
-| 原理图 | `.sch`，文件头 `EESchema Schematic File Version 4`，版本宏 `EESCHEMA_VERSION 4`，常见 `EELAYER 26 0` |
-| 符号库 | `.lib`/`.dcm`，常见 `EESchema-LIBRARY Version 2.4` |
-| PCB/封装 | `.kicad_pcb`/`.kicad_mod` S-expression，版本 `20171130` |
-
-PCB/封装版本点：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20160815 | netclass 增加 differential pair 设置 |
-| 20170123 | `EDA_TEXT` 重构，`hide` 字段位置变化 |
-| 20170920 | 长焊盘名和自定义 pad shape |
-| 20170922 | keepout zone 可存在于多层 |
-| 20171114 | 3D model offset 改为以 mm 保存，不再以 inch 保存 |
-| 20171125 | footprint text 可 locked/unlocked |
-| 20171130 | 3D model offset 使用 `offset` 参数写出 |
-
-回退要点：
-
-- KiCad 5 仍不是 `.kicad_sch`/`.kicad_sym`；从 V6+ 回退到 V5 仍需要 legacy writer。
-- V5 比 V4 更接近现代库表工作流，但文件本体仍是 legacy 文本块。
-- 回退 V4 时需要删除或改写 V5 自定义 pad shape、长焊盘名、多层 keepout、V5 3D model offset 写法。
-
-## V6 到 V10 逐版本差异
-
-### 6.0 相对 5.x
-
-KiCad 6 是文件格式重构最大的版本。
-
-| 类型 | KiCad 5.x | KiCad 6.0 |
+| 区域 | KiCad 4.0 | KiCad 5.0 / 5.1 |
 | --- | --- | --- |
-| 项目 | `.pro` legacy | `.kicad_pro` JSON |
-| 本地项目状态 | 无统一 `.kicad_prl` | `.kicad_prl` JSON |
-| 原理图 | `.sch` legacy | `.kicad_sch` S-expression |
-| 符号库 | `.lib`/`.dcm` legacy | `.kicad_sym` S-expression |
-| PCB | `.kicad_pcb` S-expression | `.kicad_pcb` S-expression |
-| 封装 | `.kicad_mod` S-expression | `.kicad_mod` S-expression |
-| 图框 | legacy | `.kicad_wks` S-expression |
-| 设计规则 | 无独立 `.kicad_dru` | `.kicad_dru` S-expression-like rules |
+| 原理图标题 | `EESchema Schematic File Version 2` | `EESchema Schematic File Version 4` |
+| 原理图宏 | `EESCHEMA_VERSION 2` | `EESCHEMA_VERSION 4` |
+| 符号库头 | 通常是`EESchema-LIBRARY Version 2.3` | 通常是`EESchema-LIBRARY Version 2.4` |
+| PCB版 | `4` | `20171130` |
 
-5.x 到 6.0 PCB/封装变化：
+KiCad 5 PCB/封装版本点位于 KiCad 6 开发线之前：
 
-| 版本 | 变化 |
+| 版本 | 改变 |
 | ---: | --- |
-| 20190331 | hatched zones 和 chamfered round rect pads |
-| 20190421 | custom pad 支持曲线 |
-| 20190516 | 移除 zone segment count |
-| 20190605 | 增加 layer defaults |
-| 20190905 | `setup` 中增加 board physical stackup |
-| 20190907 | footprint 中增加 keepout areas |
-| 20191123 | pad 中保存 pin function |
-| 20200104 | fabrication pad property |
-| 20200119 | track arcs |
-| 20200512 | `page` 改为 `paper` |
-| 20200518 | 保存 `hole_to_hole_min` |
-| 20200614 | 增加 `fp_rect` 和 `gr_rect` |
-| 20200625 | 多层 zone、zone names、island controls |
-| 20200628 | 移除 visibility settings |
-| 20200724 | footprint 增加 KIID |
-| 20200807 | zone hatch advanced settings |
-| 20200808 | footprint properties |
-| 20200809 | via 和 THT pad 增加 `REMOVE_UNUSED_LAYERS` |
-| 20200811 | groups |
-| 20200818 | 移除 Status flag bitmap 和 setup counts |
-| 20200819 | board-level properties |
-| 20200825 | 移除 host information |
-| 20200828 | 新 fabrication attributes |
-| 20200829 | exported footprint 移除 library name |
-| 20200909 | dimension 格式变化 |
-| 20200913 | leader dimension |
-| 20200916 | center dimension |
-| 20200921 | orthogonal dimension |
-| 20200922 | layer definition 增加 user name |
-| 20201002 | footprint editor 中 footprint 支持 groups |
-| 20201114 | filled shapes 成为 first-class 对象 |
-| 20201115 | `module` 改为 `footprint`，fill 语法变化 |
-| 20201116 | footprint 文件写入 version 和 generator |
-| 20201220 | free via token |
-| 20210108 | pad locking 从 footprint 移到 pad |
-| 20210126 | pad 中与 pinfunction 同时保存 pintype |
-| 20210228 | global margins 移回 board 文件 |
-| 20210424 | 修正 locked flag 语法，移除括号 |
-| 20210606 | overbar 从 `~...~` 改为 `~{...}` |
-| 20210623 | polygon 支持读写 arcs |
-| 20210722 | group locked flags |
-| 20210824 | 3D color opacity |
-| 20210925 | `fp_text` locked flag |
-| 20211014 | arc formatting |
+| 20160815 | 每个网络类别的差分对设置 |
+| 20170123 | `EDA_TEXT` 重构；移动了 `hide` |
+| 20170920 | 长焊盘名称和自定义焊盘形状 |
+| 20170922 | 禁止区域可以存在于多层上 |
+| 20171114 | 以毫米而不是英寸为单位保存 3D 模型偏移 |
+| 20171125 | 锁定/解锁的足迹文本 |
+| 20171130 | 使用 `offset` 参数写入的 3D 模型偏移 |
 
-6.0 原理图/符号库初始差异：
+backport的影响：
 
-| 文件 | 关键变化 |
-| --- | --- |
-| `.kicad_sym` | 初始 S-expression 符号库；alternate pin definitions；overbar 新语法；arc formatting |
-| `.kicad_sch` | 初始 S-expression 原理图；sheet fields 修正；BOM/board 排除；bus/junction properties；UUID；sheet instance properties；pin/net overbar 新语法；junction UUID |
+- KiCad 4/5 原理图目标需要传统的 `.sch` 编写器，而不仅仅是一个
+`.kicad_sch` 版本重写。
+- KiCad 4/5 符号目标需要旧版 `.lib` / `.dcm` 输出或显式
+有损/未实现警告。
+- KiCad 4 板目标使用版本 `4`； KiCad 5 板目标使用 `20171130`。
+- V6+ UUID、文本框、嵌入文件、变体、表格、规则区域、组件
+类、焊盘堆栈、通孔堆栈、背钻和类似结构不能
+直接保存在V4/V5文件中。
 
-回退要点：
+## 当前开发版本矩阵
 
-- V6+ 到 V5/V4 是跨格式族转换，不是 S-expression 版本号回写。
-- `page`/`paper`、`module`/`footprint`、`id`/`uuid`、`~...~`/`~{...}`、locked 布尔语法都需要边界转换。
-- `.kicad_pro` 到 `.pro` 需要单独处理项目配置，不应与 PCB/SCH 的 S-expression 处理混在一起。
+经过审查的 KiCad `master` 分支已经进入 11.0 开发阶段。
+这些发现是 10.0 后的开发项目，不得标记为 KiCad
+10.0稳定格式支持：
 
-### 7.0 相对 6.0
-
-| 文件类型 | KiCad 6.0.0 | KiCad 7.0.0 |
-| --- | ---: | ---: |
-| `.kicad_sym` | 20211014 | 20220914 |
-| `.kicad_sch` | 20211123 | 20230121 |
-| `.kicad_pcb`/`.kicad_mod` | 20211014 | 20221018 |
-| `.kicad_wks` | 20210606 | 20220228 |
-| `.kicad_dru` | 20200610 | 20200610 |
-
-Symbol library：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20220101 | class flags |
-| 20220102 | fonts |
-| 20220126 | text boxes |
-| 20220328 | text box `start/end` 改为 `at/size` |
-| 20220331 | text colors |
-| 20220914 | symbol unit display names |
-| 20220914 | 不再保存 property ID |
-
-Schematic：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20220101 | circles、arcs、rects、polys、beziers |
-| 20220102 | dash-dot-dot |
-| 20220103 | label fields |
-| 20220104 | fonts |
-| 20220124 | `netclass_flag` 改为 `directive_label` |
-| 20220126 | text boxes |
-| 20220328 | text box `start/end` 改为 `at/size` |
-| 20220331 | text colors |
-| 20220404 | default schematic symbol instance data |
-| 20220622 | 新 simulation model 格式 |
-| 20220820 | 修复 default symbol instance data |
-| 20220822 | text objects 支持 hyperlinks |
-| 20220903 | field name visibility |
-| 20220904 | do not autoplace field option |
-| 20220914 | DNP |
-| 20220929 | 不再保存 property ID |
-| 20221002 | instance data 移回 symbol definition |
-| 20221004 | instance data 移回 symbol definition |
-| 20221110 | sheet instance data 移到 sheet definition |
-| 20221126 | instance data 移除 value 和 footprint |
-| 20221206 | simulation model fields V6 到 V7 |
-| 20230121 | `SCH_MARKER` sheet path serialization |
-
-PCB/footprint：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20211226 | radial dimension |
-| 20211227 | thermal relief spoke angle overrides |
-| 20211228 | `allow_soldermask_bridges` footprint attribute |
-| 20211229 | stroke formatting |
-| 20211230 | footprint 中的 dimensions |
-| 20211231 | private footprint layers |
-| 20211232 | fonts |
-| 20220131 | textboxes |
-| 20220211 | 结束 V5 zone fill strategy 支持 |
-| 20220225 | 移除 `TEDIT` |
-| 20220308 | knockout text 和 locked graphic text property |
-| 20220331 | plot-on-all-layers selection setting |
-| 20220417 | automatic dimension precisions |
-| 20220427 | 从 footprint private layers 排除 Edge.Cuts 和 Margin |
-| 20220609 | teardrop keywords |
-| 20220621 | image support |
-| 20220815 | `allow-soldermask-bridges-in-FPs` flag |
-| 20220818 | first-class net ties |
-| 20220914 | custom-shape pad number boxes |
-| 20221018 | via 和 pad zone-layer-connections |
-
-Worksheet：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20220228 | font support |
-
-回退要点：
-
-- 回退到 V6 需要删除 DNP、V7 simulation model 字段、text boxes、字体属性、net-tie first-class 存储、image 等。
-- 回退到 V6 或更早时，property ID 处理要反向补齐或转为目标格式允许的字段。
-
-### 8.0 相对 7.0
-
-| 文件类型 | KiCad 7.0.0 | KiCad 8.0.0 |
-| --- | ---: | ---: |
-| `.kicad_sym` | 20220914 | 20231120 |
-| `.kicad_sch` | 20230121 | 20231120 |
-| `.kicad_pcb`/`.kicad_mod` | 20221018 | 20240108 |
-| `.kicad_wks` | 20220228 | 20231118 |
-| `.kicad_dru` | 20200610 | 20200610 |
-
-Symbol library：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20230620 | `ki_description` 改为 `Description` field |
-| 20231120 | `generator_version` 和 V8 cleanups |
-
-Schematic：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20230221 | modern power symbols，editable value = net |
-| 20230409 | `exclude_from_sim` markup |
-| 20230620 | `ki_description` 改为 `Description` field |
-| 20230808 | `Sim.Enable` field 移到 `exclude_from_sim` attribute |
-| 20230819 | 允许多层 library symbol inheritance depth |
-| 20231120 | `generator_version` 和 V8 cleanups |
-
-PCB/footprint：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20230410 | schematic DNP attribute 传播到 PCB `attr` |
-| 20230517 | pad 和 via teardrop parameters |
-| 20230620 | PCB fields |
-| 20230730 | graphic shapes connectivity |
-| 20230825 | textbox explicit border flag |
-| 20230906 | 文件中支持 multiple image types |
-| 20230913 | custom-shaped-pad spoke templates |
-| 20231007 | generative objects |
-| 20231014 | V8 file format normalization |
-| 20231212 | reference image locking/UUIDs，footprint boolean format |
-| 20231231 | generator 和 group 使用 `uuid` 而不是 `id` |
-| 20240108 | teardrop parameters 改为 explicit bools |
-
-Worksheet：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20230607 | images 保存为 base64 |
-| 20231118 | `generator_version` 和 V8 file format cleanup |
-
-回退要点：
-
-- 回退 V7 要移除根 `generator_version`，并处理 `uuid`/`id`、布尔 presence atom、PCB fields、generative objects、reference image UUID 等。
-- `ki_description` 与 `Description` 字段需要双向映射。
-
-### 9.0 相对 8.0
-
-| 文件类型 | KiCad 8.0.0 | KiCad 9.0.0 |
-| --- | ---: | ---: |
-| `.kicad_sym` | 20231120 | 20241209 |
-| `.kicad_sch` | 20231120 | 20250114 |
-| `.kicad_pcb`/`.kicad_mod` | 20240108 | 20241229 |
-| `.kicad_wks` | 20231118 | 20231118 |
-| `.kicad_dru` | 20200610 | 20200610 |
-
-Symbol library：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20240529 | embedded files |
-| 20240819 | embedded file hash algorithm 改为 Murmur3 |
-| 20241209 | private flags for `SCH_FIELD` |
-
-Schematic：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20240101 | tables |
-| 20240417 | rule areas |
-| 20240602 | sheet attributes |
-| 20240620 | embedded files |
-| 20240716 | multiple netclass assignments |
-| 20240812 | netclass color highlighting |
-| 20240819 | embedded file hash algorithm 改为 Murmur3 |
-| 20241004 | symbols 中 `hide` 使用 booleans |
-| 20241209 | private flags for `SCH_FIELD` |
-| 20250114 | text variable cross references 使用 full paths |
-
-PCB/footprint：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20240201 | overrides 使用 nullable properties |
-| 20240202 | tables |
-| 20240225 | `solder_paste_margin` rationalization |
-| 20240609 | 增加 `tenting` keyword |
-| 20240617 | table angles |
-| 20240703 | user layer types |
-| 20240706 | embedded files |
-| 20240819 | embedded file hash algorithm 改为 Murmur3 |
-| 20240928 | component classes |
-| 20240929 | complex padstacks |
-| 20241006 | via stacks |
-| 20241007 | tracks 可带 soldermask layer 和 margin |
-| 20241009 | placement rule areas 文件格式演进 |
-| 20241010 | graphic shapes 可带 soldermask layer 和 margin |
-| 20241030 | dimension arrow directions，`suppress_zeroes` normalization |
-| 20241129 | normalize `keep_text_aligned` 和 fill properties |
-| 20241228 | teardrop curve points 改为 bool |
-| 20241229 | user layers 扩展为任意数量 |
-
-回退要点：
-
-- 回退 V8 要删除 embedded files、tables、rule areas、component classes、complex padstack、via stack、任意用户层等。
-- 9.0 对 PCB 对象模型影响很大，尤其是 padstack/via stack/user layer，不能只做字段删除。
-- 嵌入文件若丢弃，应产生明确 warning 或 sidecar 元数据。
-
-### 10.0 相对 9.0
-
-| 文件类型 | KiCad 9.0.0 | KiCad 10.0.0 |
-| --- | ---: | ---: |
-| `.kicad_sym` | 20241209 | 20251024 |
-| `.kicad_sch` | 20250114 | 20260306 |
-| `.kicad_pcb`/`.kicad_mod` | 20241229 | 20260206 |
-| `.kicad_wks` | 20231118 | 20231118 |
-| `.kicad_dru` | 20200610 | 20200610 |
-
-Symbol library：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20250318 | `~` 不再表示 empty text |
-| 20250324 | jumper pin groups |
-| 20250829 | rounded rectangles |
-| 20250901 | stacked pin notation |
-| 20250925 | bus alias in project file |
-| 20251024 | updated properties formatting：`do_not_autoplace`, `show_name` |
-
-Schematic：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20250222 | shape hatched fills |
-| 20250227 | local power symbols |
-| 20250318 | `~` 不再表示 empty text |
-| 20250425 | tables 增加 UUID |
-| 20250513 | groups 可带 design block `lib_id` |
-| 20250610 | rule areas 增加 DNP 等 flags |
-| 20250827 | custom body styles |
-| 20250829 | rounded rectangles |
-| 20250901 | stacked pin notation |
-| 20250922 | schematic variants |
-| 20251012 | flat schematic hierarchy support |
-| 20251028 | updated properties formatting：`do_not_autoplace`, `show_name` |
-| 20260101 | PCB variants |
-| 20260306 | corrected variant `in_bom` semantics |
-
-PCB/footprint：
-
-| 版本 | 变化 |
-| ---: | --- |
-| 20250210 | textboxes 增加 knockout |
-| 20250222 | PCB shapes 增加 hatching |
-| 20250228 | IPC-4761 via protection features |
-| 20250302 | zone hatching offsets |
-| 20250309 | component class dynamic assignment rules |
-| 20250324 | jumper pads |
-| 20250401 | time domain length tuning |
-| 20250513 | groups 可带 design block `lib_id` |
-| 20250801 | `(island)` 改为 `(island yes/no)` |
-| 20250811 | press-fit pad fabrication property support |
-| 20250818 | footprint 支持 custom layer counts |
-| 20250829 | rounded rectangles |
-| 20250901 | PCB point objects |
-| 20250907 | tables 增加 UUID |
-| 20250909 | footprint unit metadata：`units`/`pins` |
-| 20250914 | PCB barcode objects |
-| 20250926 | via type 拆分为 blind/buried/through |
-| 20251027 | pad-to-die delays 修正缩放保存 |
-| 20251028 | 停止写出 netcodes，netcode 成为内部实现细节 |
-| 20251101 | backdrill 和 tertiary drill support |
-| 20260101 | PCB variants with per-footprint overrides |
-| 20260206 | 修正 barcode 和 variant attribute serialization |
-
-图框和设计规则：
-
-- `.kicad_wks` 稳定版本仍为 `20231118`，没有 10.0 稳定版版本号抬升。
-- `.kicad_dru` 稳定版本仍为 `20200610`，但 10.0 的 component class、variant、via protection、via type 等会影响规则可引用对象。
-
-回退要点：
-
-- 回退 V9 要移除或降级 variants、jumper pads、barcode、via protection、split via type、backdrill、tertiary drill、custom layer count、PCB points、table UUID 等。
-- `netcodes` 停写是 V10 重要分界：回退到 V9 或更早时需要重建 board 根部 `net` 声明和对象上的旧式数值 netcode。
-- `~` 空文本语义变化会影响原理图/符号库文本和属性；回退时必须明确区分 literal `~` 与空字符串。
-
-## 10.0 后开发分支边界
-
-当前本地 `master` 已进入 11.0 development，不能混入 V10 稳定清单。已识别但不属于 10.0 稳定版的开发项包括：
-
-| 文件 | 开发版本 | 变化 |
+| 文件类型 | 当前开发版本 | 笔记 |
 | --- | ---: | --- |
-| `.kicad_sym` | 20260508 | native ellipse primitive |
-| `.kicad_sch` | 20260512 | net chains |
-| `.kicad_pcb`/`.kicad_mod` | 20260410 | extruded 3D body |
-| `.kicad_pcb`/`.kicad_mod` | 20260508 | native ellipse primitive |
-| `.kicad_pcb`/`.kicad_mod` | 20260511 | dielectric frequency-dependent stackup models |
-| `.kicad_pcb`/`.kicad_mod` | 20260512 | net chains |
-| `.kicad_pcb`/`.kicad_mod` | 20260513 | copper thieving zone fill mode |
-| `.kicad_pcb`/`.kicad_mod` | 20260521 | 焊盘仿真电气类型，写作 pad 上的 `sim_electrical_type` |
-| `.kicad_pcb`/`.kicad_mod` | 20260603 | PCB 表格单元格 `knockout` 标志 |
+| 主板`.kicad_pcb` | `20260603` | 表格单元格上的淘汰标志 |
+| 足迹`.kicad_mod` | `20260603` | 封装采用PCB S表达版本 |
+| 原理图`.kicad_sch` | `20260512` | 网链 |
+| 符号库`.kicad_sym` | `20260508` | 原始椭圆 |
+| 工作表 `.kicad_wks` | `20231118` | 生成器版本/KiCad 8 清理 |
+| 设计规则`.kicad_dru` | `20200610` | 未找到当前开发特定的版本冲突 |
 
-这些项可作为未来 V11 文档的起点；本项目若支持读取 10.99/11.0-dev，应单独建目标版本别名和 warning，不应标记为 KiCad 10.0。
+目前发现的10.0后开发版本步骤：
 
-## C++ 转换器实现覆盖
+| 版本 | 文件类型 | 改变 |
+| ---: | --- | --- |
+| 20260410 | Board / footprint | 挤压 3D 机身 |
+| 20260508 | Board / footprint | 原生 PCB 椭圆和椭圆弧基元 |
+| 20260508 | 示意图/符号 | 原生原理图/符号椭圆和椭圆弧基元 |
+| 20260511 | 木板 | 介电频率相关的叠层模型 |
+| 20260512 | 电路板/原理​​图 | 网链 |
+| 20260513 | 木板 | 铜盗区填充模式 |
+| 20260521 | Board / footprint | 焊盘模拟电气类型 |
+| 20260603 | Board / footprint | 表格单元格上的淘汰标志 |
 
-`kicad-backport-cplus` 会按文件类型解析目标版本别名，应用降级规则，再写出目标 `version` 字段。它也接受原始数字格式版本，用于测试某个 parser cutoff。
+## 6.0 至 7.0
 
-| Alias | Symbol | Schematic | Board | Footprint | Worksheet | Design rules |
+### 符号库
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20220101 | 班级标志 |
+| 20220102 | 字体 |
+| 20220126 | 文本框 |
+| 20220328 | 文本框 `start/end` 更改为 `at/size` |
+| 20220331 | 文字颜色 |
+| 20220914 | 符号单位显示名称 |
+| 20220914 | 不再保存属性 ID |
+
+### 示意图
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20220101 | 圆、弧、矩形、多边形、贝塞尔曲线 |
+| 20220102 | 点划线 |
+| 20220103 | 标签字段 |
+| 20220104 | 字体 |
+| 20220124 | `netclass_flag` 重命名为 `directive_label` |
+| 20220126 | 文本框 |
+| 20220328 | 文本框 `start/end` 更改为 `at/size` |
+| 20220331 | 文字颜色 |
+| 20220404 | 默认原理图符号实例数据 |
+| 20220622 | 新的仿真模型格式 |
+| 20220820 | 默认符号实例数据修复 |
+| 20220822 | 文本对象超链接 |
+| 20220903 | 字段名称可见性 |
+| 20220904 | 不自动放置字段选项 |
+| 20220914 | DNP 支持 |
+| 20220929 | 不再保存属性 ID |
+| 20221002 | 实例数据移回符号定义 |
+| 20221004 | 实例数据移回符号定义 |
+| 20221110 | 工作表实例数据移至工作表定义 |
+| 20221126 | 从实例数据中删除了价值和占用空间 |
+| 20221206 | 仿真模型字段 V6 至 V7 |
+| 20230121 | `SCH_MARKER` 工作表路径序列化 |
+
+### PCB/封装
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20211226 | 径向尺寸 |
+| 20211227 | 散热辐条角度覆盖 |
+| 20211228 | `allow_soldermask_bridges` 封装属性 |
+| 20211229 | 笔画格式 |
+| 20211230 | 封装尺寸 |
+| 20211231 | 私有足迹层 |
+| 20211232 | 字体 |
+| 20220131 | 文本框 |
+| 20220211 | 结束 V5 区域填充策略支持 |
+| 20220225 | 删除编辑 |
+| 20220308 | 挖空文本和锁定图形文本属性 |
+| 20220331 | 在所有图层上绘图选择设置 |
+| 20220417 | 自动尺寸精度 |
+| 20220427 | 从占用空间私有层中排除 Edge.Cuts 和 Margin |
+| 20220609 | 泪滴关键字 |
+| 20220621 | 图片支持 |
+| 20220815 | `allow-soldermask-bridges-in-FPs` 标志 |
+| 20220818 | 一流的网络联系 |
+| 20220914 | 定制形状的号码盒 |
+| 20221018 | 过孔和焊盘区域层连接 |
+
+### 工作表
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20220228 | 字体支持 |
+
+## 7.0 至 8.0
+
+### 符号库
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20230620 | `ki_description` 更改为 `Description` 字段 |
+| 20231120 | `generator_version` 和 V8 清理 |
+
+### 示意图
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20230221 | 现代权力符号，可编辑值=净值 |
+| 20230409 | `exclude_from_sim` 标记 |
+| 20230620 | `ki_description` 更改为 `Description` 字段 |
+| 20230808 | `Sim.Enable` 字段移至 `exclude_from_sim` 属性 |
+| 20230819 | 多层次的库符号继承 |
+| 20231120 | `generator_version` 和 V8 清理 |
+
+### PCB/封装
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20230410 | DNP 属性从原理图传播到 `attr` |
+| 20230517 | 焊盘和过孔泪滴参数 |
+| 20230620 | PCB领域 |
+| 20230730 | 图形形状连接 |
+| 20230825 | 文本框显式边框标志 |
+| 20230906 | 多种图像类型支持 |
+| 20230913 | 定制形状垫辐条模板 |
+| 20231007 | 生成对象 |
+| 20231014 | V8 文件格式标准化 |
+| 20231212 | 参考图像锁定/UUID、封装布尔格式 |
+| 20231231 | 生成器和组使用 `uuid` 而不是 `id` |
+| 20240108 | 泪滴参数更改为显式布尔值 |
+
+### 工作表
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20230607 | 图像保存为 base64 |
+| 20231118 | `generator_version` 和 V8 文件格式清理 |
+
+## 8.0 至 9.0
+
+### 符号库
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20240529 | 嵌入文件 |
+| 20240819 | 嵌入式文件哈希算法更改为 Murmur3 |
+| 20241209 | `SCH_FIELD` 私有标志 |
+
+### 示意图
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20240101 | 表格 |
+| 20240417 | 规则区域 |
+| 20240602 | 图纸属性 |
+| 20240620 | 嵌入文件 |
+| 20240716 | 多个网络类分配 |
+| 20240812 | Netclass 颜色突出显示 |
+| 20240819 | 嵌入式文件哈希算法更改为 Murmur3 |
+| 20241004 | 符号 `hide` 使用布尔值 |
+| 20241209 | `SCH_FIELD` 私有标志 |
+| 20250114 | 文本变量交叉引用使用完整路径 |
+
+### PCB/封装
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20240201 | 覆盖使用可为 null 的属性 |
+| 20240202 | 表格 |
+| 20240225 | `solder_paste_margin` 合理化 |
+| 20240609 | `tenting` 关键字 |
+| 20240617 | 工作台角度 |
+| 20240703 | 用户层类型 |
+| 20240706 | 嵌入文件 |
+| 20240819 | 嵌入式文件哈希算法更改为 Murmur3 |
+| 20240928 | 组件类 |
+| 20240929 | 复杂的焊盘组 |
+| 20241006 | 通过堆栈 |
+| 20241007 | 轨道可以承载阻焊层和边缘 |
+| 20241009 | 放置规则区域格式演变 |
+| 20241010 | 图形形状可以承载阻焊层和边距 |
+| 20241030 | 尺寸箭头方向，`suppress_zeroes` 标准化 |
+| 20241129 | 标准化 `keep_text_aligned` 和填充属性 |
+| 20241228 | 泪滴曲线点更改为布尔值 |
+| 20241229 | 用户层扩展到任意数量 |
+
+### 工作表
+
+无工作表版本冲突；仍然是 `20231118`。
+
+## 9.0 至 10.0
+
+### 符号库
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20250318 | `~` 不再表示空文本 |
+| 20250324 | 跳线针组 |
+| 20250829 | 圆角矩形 |
+| 20250901 | 堆叠引脚符号 |
+| 20250925 | 项目文件中的总线别名 |
+| 20251024 | 属性格式更新：`do_not_autoplace`、`show_name` |
+
+### 示意图
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20250222 | 形状的阴影填充 |
+| 20250227 | 当地电源符号 |
+| 20250318 | `~` 不再表示空文本 |
+| 20250425 | 表的 UUID |
+| 20250513 | 组可以携带设计块 `lib_id` |
+| 20250610 | 规则区域支持 DNP 和其他标志 |
+| 20250827 | 定制车身样式 |
+| 20250829 | 圆角矩形 |
+| 20250901 | 堆叠引脚符号 |
+| 20250922 | 原理图变体 |
+| 20251012 | 平面原理图层次结构支持 |
+| 20251028 | 属性格式更新：`do_not_autoplace`、`show_name` |
+| 20260101 | PCB 版本 |
+| 20260306 | 变体 `in_bom` 语义已更正 |
+
+### PCB/封装
+
+| 版本 | 改变 |
+| ---: | --- |
+| 20250210 | 文本框淘汰 |
+| 20250222 | PCB 形状剖面线 |
+| 20250228 | IPC-4761 通过保护功能 |
+| 20250302 | 区域剖面线偏移 |
+| 20250309 | 组件类动态分配规则 |
+| 20250324 | 跳线垫 |
+| 20250401 | 时域长度调整 |
+| 20250513 | 组可以携带设计块 `lib_id` |
+| 20250801 | `(island)` 更改为 `(island yes/no)` |
+| 20250811 | 压接焊盘制造性能 |
+| 20250818 | 封装支持自定义层数 |
+| 20250829 | 圆角矩形 |
+| 20250901 | PCB点数 |
+| 20250907 | 表的 UUID |
+| 20250909 | 封装单位元数据：单位/引脚 |
+| 20250914 | `PCB_BARCODE` 对象 |
+| 20250926 | 过孔类型分为盲孔/埋孔/直通孔 |
+| 20251027 | 焊盘到芯片延迟缩放修复 |
+| 20251028 | 停止编写网络代码；它们是内部实现细节 |
+| 20251101 | 背钻和三次钻支撑 |
+| 20260101 | 具有按封装覆盖的 PCB 变体 |
+| 20260206 | 条形码和变体属性序列化修复 |
+
+### 工作表
+
+无工作表版本冲突；仍然是 `20231118`。
+
+## 10.0到现在的发展
+
+与 KiCad 10 目标文件相比，审查的当前开发分支
+添加了这些较新的格式步骤：
+
+| 版本 | 文件类型 | 不同之处 |
+| ---: | --- | --- |
+| 20260410 | Board / footprint | 足迹模型块中的挤压 3D 身体元数据 |
+| 20260508 | Board / footprint | 原生 PCB 椭圆和椭圆弧基元 |
+| 20260508 | 示意图/符号 | 原生原理图/符号椭圆和椭圆弧基元 |
+| 20260511 | 木板 | 介电频率相关的叠层模型场 |
+| 20260512 | 木板 | 网链聚合区块 |
+| 20260512 | 示意图 | 网链记录 |
+| 20260513 | 木板 | 铜盗区填充模式 |
+| 20260521 | Board / footprint | 焊盘模拟电气类型，焊盘上序列化为 `sim_electrical_type` |
+| 20260603 | Board / footprint | 表格单元格 `knockout` 标志 |
+
+## 从当前开发文件backport目标摘要
+
+与较旧的支持目标相比，10.99 引入或保留了更新的目标
+backport时必须删除、简化或重命名的结构：
+
+| 目标 | Board / footprint目标 | 目标示意图 | 符号目标 | 当前发展的主要降级领域 |
+| --- | ---: | ---: | ---: | --- |
+| 基卡 10 | `20260206` | `20260306` | `20251024` | 删除仅用于开发的挤压主体元数据、原生椭圆、介电频率场、网络链、盗铜、焊盘模拟电气类型和表单元淘汰标志 |
+| KiCad9 | `20241229` | `20250114` | `20241209` | KiCad 10 项以及 PCB 形状剖面线、过孔保护、区域剖面线偏移、跳线垫、组设计块 ID、自定义层数、圆角矩形、PCB 点、表 UUID、条形码、分割过孔类型、网络代码省略、背钻/后加工、PCB 变体、原理图变体/主体样式/圆角矩形/堆叠引脚/属性格式 |
+| 基卡 8 | `20240108` | `20231120` | `20231120` | KiCad 9 项以及表格、嵌入式文件、组件类、padstack、通孔堆栈、规则区域、帐篷、用户层扩展、工作表属性、多个网络类分配、网络类颜色突出显示 |
+| KiCad7 | `20221018` | `20230121` | `20220914` | KiCad 8 项以及 PCB 字段、DNP 属性传播、现代泪滴、自定义焊盘辐条模板、生成器、UUID/id 标准化、文本框、图像、网络连接、字体/字段格式、规则区域、现代原理图模拟/排除标志 |
+
+## C++ backport实现覆盖范围
+
+`kicad-backport-cplus` CLI 实现版本驱动的 S 表达式重写。
+它解析每个文档类型的版本别名，应用降级规则，然后
+写入目标 `version` 字段。它还接受原始数字文件格式
+用于测试特定解析器截止的版本。
+
+代码中支持的别名映射：
+
+| 别名 | 象征 | 示意图 | 木板 | 脚印 | 工作表 | 设计规则 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `6.0` | `20211014` | `20211123` | `20211014` | `20211014` | `20210606` | `20200610` |
 | `7.0` | `20220914` | `20230121` | `20221018` | `20221018` | `20220228` | `20200610` |
@@ -502,123 +415,338 @@ PCB/footprint：
 | `9.0` | `20241209` | `20250114` | `20241229` | `20241229` | `20231118` | `20200610` |
 | `10.0` | `20251024` | `20260306` | `20260206` | `20260206` | `20231118` | `20200610` |
 
-转换器不会升级旧文件。如果源文件数字版本低于目标版本，会原样复制并在报告中保留源版本。
+如果源文件已经具有所请求的数字版本，则
+converter将其复制不变。如果源版本低于目标版本，
+C++ 实现现在应用之前有限的兼容性升级
+写入请求的 `version` 字段：
 
-### 文档类型检测
+| 种类 | 实施升级常态化 |
+| --- | --- |
+| 符号库 | 为现代目标扩展传统字体样式原子；扩大引脚可见性原子；将属性 `hide` 从 `effects` 中移出；删除旧的属性 ID。 |
+| 示意图 | 将 `tstamp` 重命名为 `uuid`；将 `netclass_flag` 重命名为 `directive_label`；将旧文本框 `start/end` 转换为 `at/size`；扩展旧字体和引脚可见性原子；将属性 `hide` 从 `effects` 中移出；删除旧的属性 ID。 |
+| Board / footprint | 对于现代目标，将 `tstamp` 重命名为 `uuid`；扩展字体样式原子；扩展 `dnp` 原子足迹；将布尔值标准化为 KiCad 7 样式 `yes/no`；删除过时的 `tedit`；可以选择将旧的数字网络引用转换为网络名称。 |
 
-优先使用根 S-expression head：`kicad_symbol_lib`、`kicad_sch`、`kicad_pcb`、`footprint`、`kicad_dru`、`kicad_wks` / `drawing_sheet`。如果 root head 不可识别，再按扩展名 `.kicad_sym`、`.kicad_sch`、`.kicad_pcb`、`.kicad_mod`、`.kicad_dru`、`.kicad_wks` 判断。
+这不是一个完整的语义升级引擎；它只是规范化语法
+converter已经知道如何表达。
 
-转换项目目录或 `.kicad_pro` 时，只复制可编辑的 KiCad 项目输入和常见本地 3D 模型文件；跳过 history、backup、Gerber、fabrication output、BOM 和临时文件。目标为 KiCad 7/8 board 时，还会生成 legacy `.kicad_prl` 可见性设置。
+### 已实现发布目标覆盖范围
 
-### 已实现的主要降级策略
+C++ 规则是截止驱动的，因此每个发布别名都会激活其规则
+截止值比该文件族的目标版本新。以下总结
+列出了非 V6 稳定目标的实际覆盖范围。
 
-Symbol library 和 schematic：
+#### KiCad 10 目标
 
-- 移除旧 parser 不接受的 `text_box`、embedded files、private flags、rounded rectangles、native ellipses、schematic variants、net chains 等节点。
-- 对旧版本回填 legacy property IDs。
-- 将 property `hide` 移回 `effects`。
-- 将 boolean `hide`、font `bold` / `italic` 从列表形式降级为 presence atom。
-- 移除 `generator_version`、`embedded_fonts`、font `face`、`show_name`、`do_not_autoplace`、power class flags、jumper pin flags 等新字段。
+KiCad 10 目标主要删除 10.0 后/当前开发结构：
 
-Board 和 footprint：
+| 种类 | 实施处理 |
+| --- | --- |
+| 符号库 | 删除 10.0 符号目标之后引入的原生椭圆和椭圆弧基元。 |
+| 示意图 | 删除 10.0 后的 `locked` 字段、本机椭圆基元和 `net_chain` / `net_chains`。 |
+| Board / footprint | 删除或降级 10.0 后类型/挤压模型块、原生椭圆基元、介电频率叠加字段、网络链、盗铜填充模式、焊盘 `sim_electrical_type` 和表单元 `knockout`。 |
+| 项目副文件 | 不会为 V10 后缀生成旧版 `.kicad_prl` 或库表兼容性重写。 |
 
-- 移除或降级 text boxes、images、net ties、generated objects、teardrops、tables、tenting、embedded files、component classes、padstacks、via stacks、rule areas、via protection、custom layer counts、rounded rectangles、points、barcodes、backdrill、variants、extruded models、native ellipses、dielectric frequency fields、net chains 和 copper thieving。
-- 将 copper thieving fill mode 回退为 polygon fill。
-- 将 user layer type qualifier 回退为 `user`。
-- 将 footprint `Reference` / `Value` property 回退为 legacy `fp_text`。
-- 将 scoped `uuid` 回退为 `tstamp`，将 group/generated `uuid` 回退为 `id`。
-- 将 KiCad 7 不支持的 PCB dimensions 转换为可见文本注释。
-- 为旧 board 重建数字 netcodes 和 root-level net declarations。
+#### KiCad 9 目标
 
-Worksheet：
+KiCad 9 目标删除 KiCad 10 和当前开发语法，同时保留
+在 KiCad 9 文件版本中有效的功能：
 
-- 目标早于 `20220228` 时移除 worksheet `font` blocks。
+| 种类 | 实施处理 |
+| --- | --- |
+| 符号库 | 删除跳线引脚组、圆角矩形、原生椭圆、符号 `in_pos_files`、`duplicate_pin_numbers_are_jumpers`、`power` 类标志、属性 `show_name` / `do_not_autoplace` 和字体 `face`。 |
+| 示意图 | 删除圆角矩形、原理图变体、本机椭圆、网络链、后目标 `locked`、`embedded_fonts`、自定义主体样式、图纸装配/模拟标志、符号 `in_pos_files`、跳线/电源类标志、字体 `face`、属性格式化字段和根 `group` 节点。 |
+| Board / footprint | 通过保护、跳线焊盘字段、元件级布局源、PCB 填充填充、自定义层数、圆角矩形、PCB 点对象、条形码、背钻/后加工字段、PCB 变体、当前开发功能和字体 `face` 删除或降级 IPC-4761；重建遗留数字板网络代码。对于此目标范围，帐篷从布尔前/后列表降级为传统原子。 |
+| 项目副文件 | V9 不会生成旧版 `.kicad_prl` 重写。 |
 
-Design rules：
+#### KiCad 8 目标
 
-- 当前只检测文件类型和目标版本；由于 tracked 版本中的 `.kicad_dru` 宏保持 `20200610`，尚未实现专用降级规则。
+KiCad 8 目标删除了 KiCad 9/10/当前语法，并规范了一些语法
+后期 KiCad-8 开发形式回到 8.0.0 文件版本：
 
-### 当前开发版覆盖缺口
+| 种类 | 实施处理 |
+| --- | --- |
+| 符号库 | 删除 V9+ 嵌入文件/私有字段和 V10+ 跳线、圆角矩形和椭圆语法；删除 `embedded_fonts`、字体 `face`、符号/属性格式字段；添加旧属性 ID 并将属性可见性移至 `effects`；将字体样式和引脚可见性布尔值转换为较旧的原子语法。 |
+| 示意图 | 删除 V9+ 表、规则区域、嵌入文件/私有字段和 V10+ 圆角矩形、变体、主体样式和椭圆/网链语法；删除文本和图纸模拟/装配标志、符号/属性格式化字段、字体 `face`；添加旧属性 ID 并将属性可见性移至 `effects`；将字体和引脚可见性布尔值转换为较旧的原子语法；删除根 `group` 节点。 |
+| Board / footprint | 删除 V9+ 表、帐篷、嵌入式文件/字体、组件类、复杂焊盘堆栈、过孔堆栈、规则区域、过孔保护、任意用户层限定符、自定义层数、圆角矩形、PCB 点、条形码、背钻/后加工、变体和当前开发功能。还删除图形/轨道阻焊边距/层字段、表格单元角度、文本渲染缓存、文本框/表格单元/层剔除、模型 `hide`、字体 `face`，并添加旧的数字网络代码。 `solder_paste_margin_ratio` 重命名为 `solder_paste_ratio`。 |
+| 项目副文件 | 为 V8 板生成传统数字 ID `.kicad_prl` 显示设置。 |
 
-基于本地 KiCad `10.99.0-1273-gd90e32b6a0`，以下 current development 格式点已经出现在 KiCad 源码中，但还没有出现在 `kicad-backport-cplus` 的降级 feature gates 中：
+#### KiCad 7 目标
 
-| 引入版本 | 缺失的降级处理 | 说明 |
+KiCad 7 目标删除 KiCad 8/9/10/current 语法并应用额外的解析器
+围绕 PCB 字段、UUID 和封装数据进行兼容性重写：
+
+| 种类 | 实施处理 |
+| --- | --- |
+| 符号库 | 删除 V8+ `generator_version`、嵌入字体/文件、V9 私有字段、V10 跳线/圆角/椭圆语法、符号 `exclude_from_sim`、位置文件和属性格式化字段、跳线/功率等级标志和字体 `face`；添加旧属性 ID；将属性可见性移至 `effects`；将字体和可见性布尔值转换为原子语法。 |
+| 示意图 | 删除 V8+ `generator_version` 和 `fields_autoplaced`、V9+ 表/规则区域/嵌入/私有字段、V10+ 舍入/变体/主体样式语法、目标后模拟排除字段、工作表汇编/模拟标志、符号/属性格式化字段、字体 `face` 和根 `group` 节点。 KiCad 6/7 解析器的 UUID 原子未加引号，并且属性可见性/ID 已降级为旧版放置。 |
+| Board / footprint | 删除 V8+ 生成的对象、泪滴、表格、嵌入文件/字体、组件类、焊盘/过孔堆栈、规则区域、过孔保护和较新的目标语法。将用户层类型限定符转换为 `user`；删除图形/轨道阻焊字段、表格角度、渲染缓存、淘汰标志、模型 `hide`、图形网络连接、组锁定字段、通孔层连接字段、封装跳线/网络连接/单元字段、字体 `face` 和旧版不兼容的封装属性原子。将 PCB 封装属性转换回 `fp_text`、将 `uuid`/`id` 重命名为 `tstamp`/`id` 旧形式、重命名焊膏和热场、将笔画转换为旧 `width`、将尺寸转换为可见图形、降级布尔值/存在原子以及重建数字网络代码。 |
+| 项目副文件 | 为 V7 板生成传统数字 ID `.kicad_prl` 显示设置。 |
+
+### 文件检测和项目处理
+
+C++ 实现主要从根部检测 KiCad 文档类型
+S表情头：
+
+| 根头 | 种类 |
+| --- | --- |
+| `kicad_symbol_lib` | 符号库 |
+| `kicad_sch` | 示意图 |
+| `kicad_pcb` | 木板 |
+| `footprint` | 脚印 |
+| `kicad_dru` | 设计规则 |
+| `kicad_wks`, `drawing_sheet` | 工作表 |
+
+如果根头丢失或未知，它将回退到文件扩展名：
+`.kicad_sym`、`.kicad_sch`、`.kicad_pcb`、`.kicad_mod`、`.kicad_dru` 和
+`.kicad_wks`. Legacy `.sch`, `.lib`, `.dcm`, and `.pro` are also detected as
+旧版 KiCad 类型，但不能直接从这些旧版文件系列进行转换
+现阶段实施。
+
+转换项目目录或 `.kicad_pro` 时，它仅复制可编辑的
+KiCad 项目输入和常见本地 3D 模型文件。生成的输出，
+历史/备份文件夹、Gerber、制造输出、BOM 和临时文件
+被跳过。对于 KiCad 6、7 和 8 板目标，它还创建了遗产
+`.kicad_prl` 本地板显示设置，带有数字 `visible_items`，完整
+`visible_layers` 和较旧的本地设置元版本因此转换了对象
+在较旧的 GUI 中仍然可见。对于 KiCad 6 项目目标还包括
+从 `sym-lib-table` / `fp-lib-table` 中删除顶级 `version` 节点，并且
+跨子工作表重建根级原理图层次结构实例表。
+
+### 符号库规则
+
+当目标文件格式为通用解析器门时，通用解析器门会删除这些引入的节点
+比介绍版本旧：
+
+| 介绍 | 移除头部 | 原因 |
 | ---: | --- | --- |
-| 20260521 | Pad `sim_electrical_type` | 在 pad 上序列化为 `(sim_electrical_type source)` 或 `(sim_electrical_type sink)`。 |
-| 20260603 | 表格单元格 `knockout` 标志 | 必须按 PCB table cell 上下文处理；`knockout` 不能作为全局 token gate，因为其它对象类型也使用这个 token。 |
+| 20220126 | `text_box`, `textbox` | 符号文本框 |
+| 20240529 | `embedded_files`, `embedded_file` | 嵌入文件 |
+| 20241209 | `private` | 私有 SCH_FIELD 标志 |
+| 20250324 | `pin_group`, `pin_groups` | 跳线针组 |
+| 20250829 | `rounded_rectangle`, `roundrect` | 圆角矩形 |
+| 20260508 | `ellipse`, `ellipse_arc` | 原生椭圆基元 |
 
-## Backport 目标检查清单
+兼容性重写：
 
-### 目标 V4/V5
+| 目标截止 | 改写 |
+| ---: | --- |
+| `< 20231120` | 删除根 `generator_version` 字段 |
+| `< 20241209` | 删除 `embedded_fonts`;添加旧属性 ID；将属性 `hide` 标志移至 `effects` |
+| `< 20230409` | 删除符号库 `symbol/exclude_from_sim` 模拟排除标志 |
+| `< 20240108` | 将字体 `(bold yes/no)` 和 `(italic yes/no)` 列表转换为旧版存在原子 |
+| `<= 20241209` | 删除字体 `face` 字段 |
+| `< 20241004` | 将布尔 `hide` 列表转换为旧原子；展平 `pin_names` / `pin_numbers` 隐藏列表 |
+| `<= 20211014` | 添加 KiCad 6 标准属性 ID：`Reference=0`、`Value=1`、`Footprint=2`、`Datasheet=3`、`ki_keywords=4`、`ki_description=5`、`ki_fp_filters=6` |
+| `< 20251024` | 删除符号 `in_pos_files`;删除属性 `show_name` 和 `do_not_autoplace` |
+| `< 20250324` | 删除 `duplicate_pin_numbers_are_jumpers` |
+| `< 20250227` | 删除符号 `power` 类标志 |
 
-- 必须输出 legacy `.sch`，不能输出 `.kicad_sch`。
-- 必须输出 legacy `.lib`/`.dcm` 或明确声明符号库不可无损回退，不能输出 `.kicad_sym`。
-- 项目文件应回退为 `.pro` 和 legacy 库配置；`.kicad_pro`/`.kicad_prl` 只能作为源输入或 sidecar。
-- PCB/封装版本分别为 V4 `4`、V5 `20171130`，需要处理 `host`、`module`/`footprint`、V5 自定义 pad shape 等边界。
-- 所有 V6+ UUID、文本盒、嵌入文件、变体、规则区域、表格、组件类、复杂 padstack、via stack、backdrill 等都需要删除、降级或 sidecar 保存。
+### 原理图规则
 
-### 目标 V6
+通用解析器门：
 
-- `.kicad_sch` 目标版本 `20211123`，`.kicad_sym` 目标版本 `20211014`，PCB/封装目标版本 `20211014`。
-- 移除 V7+ 的 DNP、仿真模型 V7 字段、text boxes、fonts、net-tie first-class、image、teardrop 等。
-- 注意 overbar 语法、`paper`、`footprint`、UUID 和 locked flag 语法已经是 V6 口径。
+| 介绍 | 移除头部 | 原因 |
+| ---: | --- | --- |
+| 20220126 | `text_box`, `textbox` | 示意性文本框 |
+| 20220622 | `simulation_model`, `sim_model` | 新的仿真模型格式 |
+| 20240101 | `table` | 示意图 |
+| 20240417 | `rule_area` | 示意性规则区域 |
+| 20240620 | `embedded_files`, `embedded_file` | 嵌入文件 |
+| 20241209 | `private` | 私有 SCH_FIELD 标志 |
+| 20250829 | `rounded_rectangle`, `roundrect` | 圆角矩形 |
+| 20250922 | `variants`, `variant` | 原理图变体 |
+| 20260508 | `ellipse`, `ellipse_arc` | 原生椭圆基元 |
+| 20260512 | `net_chain`, `net_chains` | 网络链示意图 |
 
-### 目标 V7
+兼容性重写：
 
-- 移除 V8+ `generator_version` 和 V8 cleanups。
-- `Description`/`ki_description`、`uuid`/`id`、boolean presence atom 等需要按 V7 写法重写。
-- 删除 PCB fields、generative objects、reference image UUID、teardrop explicit bool 等 V8+ 构造。
+| 目标截止 | 改写 |
+| ---: | --- |
+| `< 20231120` | 删除 `generator_version`;从符号和工作表中删除 `fields_autoplaced` |
+| `< 20260326` | 删除目标后引入的原理图 `locked` 字段 |
+| `< 20260306` | 删除 `embedded_fonts`;删除工作表 `exclude_from_sim`、`in_bom`、`on_board`、`dnp`；删除根原理图 `group` 节点 |
+| `< 20250827` | 删除 `body_styles` 和 `body_style` |
+| `< 20250114` | 删除文本/文本框 `exclude_from_sim` |
+| `<= 20230121` | 删除所有剩余的 `exclude_from_sim` |
+| `< 20220822` | 删除文本、标签和指令标签 `hyperlink` 字段 |
+| `< 20220914` | 删除放置符号 `dnp` 标志 |
+| `< 20220124` | 将根 `directive_label` 节点重命名回 `netclass_flag` |
+| `< 20251024` | 删除符号 `in_pos_files` |
+| `< 20250324` | 删除 `duplicate_pin_numbers_are_jumpers` |
+| `< 20250227` | 删除符号 `power` 类标志 |
+| `< 20241004` | 将布尔 `hide` 列表转换为旧原子；展平图钉可见性隐藏列表 |
+| `<= 20211123` | 删除库符号 `pin/alternate` 定义 |
+| `< 20240108` | 将字体粗体/斜体布尔列表转换为旧原子 |
+| `<= 20250114` | 删除字体 `face` 字段 |
+| `<= 20230121` | 取消引用 KiCad 6/7 解析器的 `uuid` 原子 |
+| `<= 20211123` | 当源根原理图已有实例数据时，生成 KiCad 6 根级 `sheet_instances` 和 `symbol_instances`；子工作表没有给出根实例表 |
+| `<= 20211123` | 添加 KiCad 6 标准原理图属性 ID 并将图纸属性名称/ID 标准化为 `Sheet name=0` 和 `Sheet file=1` |
+| `<= 20211123` | 生成 KiCad 6 根实例表后删除符号内部 `instances` 块 |
+| `< 20241209` | 添加旧属性 ID；将属性 `hide` 标志移至 `effects` |
+| `< 20251028` | 删除属性 `show_name` 和 `do_not_autoplace` |
 
-### 目标 V8
+### 电路板和封装规则
 
-- 删除 V9+ embedded files、tables、rule areas、component classes、complex padstack、via stack、任意用户层。
-- 处理 Murmur3 hash 前后的 embedded file 差异；回退时一般不能无损保留。
-- `.kicad_wks` 已是 `20231118`，通常不用再降版本，但仍要移除 V9/V10 未支持字段。
+通用解析器门：
 
-### 目标 V9
+| 介绍 | 移除头部 | 原因 |
+| ---: | --- | --- |
+| 20220131 | `gr_text_box`, `fp_text_box`, `text_box`, `textbox` | PCB 文本框 |
+| 20220621 | `image` | PCB图像对象 |
+| 20220818 | `net_tie`, `net_ties` | 一流的网络连接存储 |
+| 20231007 | `generated` | 生成对象 |
+| 20240108 | `teardrop`, `teardrops` | 泪滴参数 |
+| 20240202 | `table` | PCB表 |
+| 20240609 | `tenting` | 帐篷关键词 |
+| 20240706 | `embedded_files`, `embedded_file`, `embedded_fonts` | 嵌入文件 |
+| 20240928 | `component_class`, `component_classes` | 组件类 |
+| 20240929 | `padstack` | 复杂的焊盘组 |
+| 20241006 | `via_stack`, `viastack` | 通过堆栈 |
+| 20241009 | `rule_area` | 放置/规则区域 |
+| 20250228 | `via_protection`, `covering`, `plugging`, `filling`, `capping` | IPC-4761过保护 |
+| 20250818 | `custom_layer_count`, `custom_layer_counts` | 自定义足迹层数 |
+| 20250829 | `rounded_rectangle`, `roundrect` | 圆角矩形 |
+| 20250901 | `point` | PCB点对象 |
+| 20250914 | `barcode`, `pcb_barcode`, `gr_barcode`, `fp_barcode` | PCB条码对象 |
+| 20251101 | `backdrill`, `tertiary_drill`, `front_post_machining`, `back_post_machining` | 背钻和三次钻探领域 |
+| 20260101 | `variants`, `variant` | PCB 版本 |
+| 20260410 | `extruded` | 挤压足迹 3D 身体模型 |
+| 20260508 | `gr_ellipse`, `gr_ellipse_arc`, `fp_ellipse`, `fp_ellipse_arc` | 原生 PCB 椭圆图元 |
+| 20260511 | `spec_frequency`, `dielectric_model` | 介电频率相关的叠层场 |
+| 20260512 | `net_chains`, `net_chain` | PCB网链 |
+| 20260513 | `thieving` | 铜盗区填充模式 |
 
-- 删除 V10+ variants、jumper pads、barcodes、via protection、split via type、backdrill、tertiary drill、custom footprint layer counts、PCB points、table UUID。
-- 重建 V9 及更早需要的 netcode。
-- 将 `(island yes/no)` 等 V10 写法恢复为 V9 可识别写法。
+来自本地 KiCad `10.99.0-1273-gd90e32b6a0` 的当前开发覆盖说明：
 
-### 目标 V10
+| 介绍 | 处理 | 笔记 |
+| ---: | --- | --- |
+| 20260521 | 已实现 | 对于早于 `20260521` 的目标，将删除填充子代 `sim_electrical_type`。 |
+| 20260603 | 已实现 | 对于早于 `20260603` 的目标，表单元格子 `knockout` 会根据上下文被删除； `knockout` 不用作全局令牌门，因为其他对象类型也使用它。 |
 
-- V10 稳定目标使用 `10.0.0`/`origin/10.0` 的版本号：symbol `20251024`，schematic `20260306`，PCB `20260206`。
-- 读取 10.99/11.0-dev 时要删掉 native ellipse、net chains、extruded 3D body、copper thieving、dielectric frequency model、pad `sim_electrical_type`、表格单元格 `knockout` 等开发分支项。
-- 不要把当前 master 的 `SEXPR_BOARD_FILE_VERSION 20260603` 当成 KiCad 10.0 稳定版。
+兼容性重写：
 
-## Warning 和报告语义
+| 目标截止 | 改写 |
+| ---: | --- |
+| `< 20260410` | 通过删除包含 `type` 的 `model` 节点来删除类型/拉伸 3D 模型块 |
+| `< 20260513` | 将铜盗区填充模式替换为多边形填充 |
+| `>= 20220225` | 删除过时的足迹 `tedit` 字段 |
+| `>= 20200628` | 删除过时的板 `visible_elements` 设置 |
+| `< 20260603` | 删除 PCB 表单元 `knockout` 字段 |
+| `< 20240703` | 将用户层类型限定符 `front`、`back`、`auxiliary` 转换为 `user` |
+| `< 20241010` | 删除图形 `solder_mask_margin` 字段 |
+| `< 20241030` | 将维度布尔字段转换为遗留原子；删除尺寸 `arrow_direction` |
+| `< 20250210` | 删除PCB文字`render_cache`；删除文本框 `knockout`;从层列表中删除 `knockout` 原子；在需要的地方将 `filled_areas_thickness no` 添加到缓存区域填充 |
+| `< 20241009` | 删除区域 `placement` 字段 |
+| `<= 20221018` | 删除区域`attr`；删除焊盘/区域 `thermal_bridge_angle`；将焊盘/区域 `thermal_bridge_width` 重命名为旧版 `thermal_width` |
+| `< 20240108` | 删除 `setup/allow_soldermask_bridges_in_footprints`;删除组 `locked`;删除过孔层连接字段，例如 `keep_end_layers`、`start_end_only` 和 `zone_layer_connections` |
+| `< 20241007` | 删除轨道 `solder_mask_margin` 和 `solder_mask_layer` 字段 |
+| `< 20240617` | 删除 PCB 表格单元格 `angle` |
+| `< 20260521` | 删除焊盘 `sim_electrical_type` |
+| `< 20250228` | 将帐篷前/后布尔列表转换为遗留原子；删除 IPC-4761 保护字段 |
+| `< 20231212` | 将 `locked` 和 `hide` 布尔列表转换为存在原子；删除 `unlocked`;删除模型 `hide` |
+| `< 20231014` | 删除 `generator_version` |
+| `< 20230924` | 将 `pcbplotparams` `yes/no` 布尔值转换为 `true/false`；将形状填充 `no` 转换为 `none` |
+| `< 20230730` | 删除图形形状 `net` 连接 |
+| `< 20240108` | 将字体粗体/斜体布尔列表转换为旧原子 |
+| `< 20230620` | 将封装 `Reference` 和 `Value` 属性转换回 `fp_text`；将 `Description` 转换为 `ki_description`；将 `sheetname`/`sheetfile` 映射到属性 |
+| `< 20231231` | 将作用域 `uuid` 字段重命名回 `tstamp`；将组/生成的 `uuid` 重命名为 `id` |
+| `< 20250324` | 删除封装跳线垫字段：`duplicate_pad_numbers_are_jumpers` 和 `jumper_pad_groups` |
+| `<= 20221018` | 删除封装 `dnp` 属性、`net_tie_pad_groups`、`units` 和 `allow_missing_courtyard`；删除焊盘/过孔 `remove_unused_layers`；将尺寸转换为可见图形；删除与旧版不兼容的 `locked`；通过字段免费降级；将 PCB 图形 `stroke` 块转换为旧版 `width` 字段 |
+| `< 20250309` | 从放置规则中删除 `component_class` |
+| `< 20250222` | 将 PCB 剖面线/反向剖面线/交叉剖面线形状填充转换为实体填充 |
+| `<= 20241229` | 删除 PCB 字体 `face` 字段 |
+| `< 20251101` | 去除焊盘/通孔后加工区域 |
+| `< 20251028` | 重建传统数字板网络代码和根级网络声明 |
 
-每个造成树结构变化的删除或兼容重写都会产生 warning。通用 feature gate 会报告删除节点数量和引入版本。报告字段包括 path、kind、source version、target version、changed 和 warnings。
+在项目级测试中观察到的 KiCad 6 解析器特定修复：
 
-## 测试建议
+| 区域 | 已实施修复 |
+| --- | --- |
+| PCB设置 | 删除 `setup/allow_soldermask_bridges_in_footprints` 对于 8 之前的板目标。 |
+| PCB 足迹 | 删除 KiCad 6/7 板目标的 `net_tie_pad_groups`、`units`、跳线垫组和 `allow_missing_courtyard` attr 原子。 |
+| PCB 区域和焊盘 | 对于 KiCad 6/7 板目标，删除区域 `attr`，删除 `thermal_bridge_angle`，并将 `thermal_bridge_width` 重命名为 `thermal_width`。 |
+| PCB 文本和表格 | 删除旧解析器拒绝的文本 `render_cache`、文本框 `knockout`、表格单元格 `knockout` 和图层列表 `knockout`。 |
+| 符号库 | 删除早于 `20230409` 的目标的符号 `exclude_from_sim` 并添加 KiCad 6 标准属性 ID。 |
+| 原理图 | 删除引脚 `alternate`，生成 KiCad 6 根实例表，规范化根工作表实例路径，规范化工作表属性名称/ID，并删除符号内部 `instances`。放置的符号引脚 UUID 块被有意保留，因为 KiCad 6 使用它们进行实例关联。 |
+| 项目副文件 | 为 V6/V7/V8 生成数字 ID `.kicad_prl` 显示设置，并删除 V6 的库表顶级 `version` 节点。 |
 
-每个目标版本至少准备以下 fixture：
+### 工作表和设计规则
 
-- 一个项目目录：包含项目文件、库表、原理图、PCB、封装和图框。
-- 一个最小原理图：覆盖符号属性、字段可见性、层级图纸、文本和网络标签。
-- 一个最小符号库：覆盖属性、pin、图形图元、别名或继承关系。
-- 一个最小 PCB：覆盖 footprint、pad、via、zone、dimension、graphic shape、netclass。
-- 一个封装库目录：覆盖 `.kicad_mod` 独立写出。
-- 一个 `.kicad_wks` 图框。
-- 一个 `.kicad_dru` 规则文件，至少验证版本保留和未知规则 warning。
+工作表处理当前有一个已实现的解析器门：
 
-断言项目：
+| 目标截止 | 改写 |
+| ---: | --- |
+| `< 20220228` | 删除工作表 `font` 块 |
 
-- 源版本识别正确。
-- 目标文件扩展名正确。
-- 根节点或 legacy 文件头正确。
-- 目标版本号正确。
-- 禁止 token 已删除或改写。
-- 需要重建的字段，例如 V9 netcode、V5/V4 legacy `LIBS:`/cache lib、V4/V5 `.pro`，已生成。
-- 每个有损转换都有 warning。
+检测到设计规则并具有目标版本别名，但没有降级
+目前正在实施重写，因为文件格式版本宏仍然存在
+`20200610` 跨越跟踪的 KiCad 版本。
 
-## 维护规则
+### 警告和报告语义
 
-添加新 KiCad 版本差异时：
+每个实现的删除或兼容性重写会更改树都会添加一个
+警告。通用特征门报告已删除节点的数量和
+介绍版本。报告包括路径、检测到的类型、源版本、
+目标版本、更改标志和警告。
 
-1. 先更新主版本文件族矩阵和稳定版 S-expression 版本矩阵。
-2. 再新增类似 `10.0 to 11.0` 或 `10.99 / current to 11.99 / current` 的区间章节。
-3. 未发布的 development branch 发现应与 stable tag 分开记录。
-4. 新版本影响已有目标降级时，同步更新 backport 目标检查清单和已实现策略摘要。
-5. `.kicad_pro` JSON schema migration 单独记录。
+## converter要求
+
+### 读取路径
+
+- 保留源文件`version`；不要仅解释为当前
+KiCad 格式。
+- 支持旧文件的兼容性别名：
+  - `page` 到 `paper`
+  - 旧版顶线 `~...~` 到 `~{...}`
+  - 旧的 `start/end` 文本框格式转换为新的 `at/size`
+  - 旧 `id` 到 `uuid`
+  - 旧的布尔值/存在令牌格式转换为显式布尔值
+- 检测未来的格式并返回明确的错误或定义的降级策略。
+
+### 写入路径
+
+- `--target-version` 必须做的不仅仅是更改顶级版本号。它
+必须根据请求的目标修剪或重写语义。
+- 每个目标版本都需要功能门：
+  - KiCad 6 不得写入 V7 仿真模型字段、DNP 或后 V6 文本框
+结构。
+  - KiCad 7 不得编写在 V8 之后才变得稳定的结构
+`generator_version` 清理。
+  - KiCad 8 不得编写 V9 嵌入文件、组件类或复杂文件
+垫堆。
+  - KiCad 9 不得写入 V10 变体、条形码、背钻、分割通孔类型和
+类似的构造。
+  - KiCad 10 不得写入当前开发的挤压主体元数据、本机
+椭圆、介电频率场、网链、盗铜、焊盘
+模拟电气类型，或表单元淘汰标志。
+- 有损降级应该产生警告或附加元数据，而不是静默
+删除。
+
+### 测试路径
+
+- 为 KiCad 6、7、8、9 和 10 构建最小的装置：
+  - 符号库
+  - 示意图
+  - 木板
+  - 脚印
+  - 工作表
+  - 设计规则
+- 每次跨版本转换都应验证：
+  - 源版本读取正确
+  - 目标版本号写入正确
+  - 不允许的代币被删除或降级
+  - 保留关键语义
+  - 警告涵盖有损转换
+
+## 保养注意事项
+
+添加未来版本差异时：
+
+1. 首先添加或更新版本矩阵。
+2. 添加新的间隔部分，例如 `10.0 to 11.0` 或
+   `10.99 / current to 11.99 / current`.
+3. 将开发分支的发现与已发布的稳定标签分开，直到
+相应的 KiCad 版本已标记。
+4. 当新的源版本引入时更新backport目标摘要
+影响现有降级目标的结构。
+5. 在单独的文档中跟踪 `.kicad_pro` JSON 架构迁移。

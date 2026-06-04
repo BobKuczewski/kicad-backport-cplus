@@ -4,7 +4,7 @@ This document tracks KiCad file format version differences used by the backport
 converter. It is organized so newer stable or development versions can be added
 without renaming the file.
 
-Last updated: 2026-06-04.
+Last updated: 2026-06-05.
 
 ## Sources and Method
 
@@ -21,6 +21,7 @@ Sources reviewed:
   - `src/kicad_backport_versions.cpp`
   - `src/kicad_backport_rules.cpp`
   - `src/kicad_backport_rule_rewriters.cpp`
+  - `src/kicad_backport_upgrade.cpp`
   - `src/kicad_backport.cpp`
 - Version header files:
   - `pcbnew/kicad_plugin.h` for KiCad 4/5 PCB formats.
@@ -414,9 +415,72 @@ Supported alias mappings in code:
 | `9.0` | `20241209` | `20250114` | `20241229` | `20241229` | `20231118` | `20200610` |
 | `10.0` | `20251024` | `20260306` | `20260206` | `20260206` | `20231118` | `20200610` |
 
-The converter does not upgrade old files. If the source file has a numeric
-version lower than the requested target version, it copies the file unchanged
-and keeps the source version in the report.
+If the source file already has exactly the requested numeric version, the
+converter copies it unchanged. If the source version is lower than the target,
+the C++ implementation now applies limited compatibility upgrades before
+writing the requested `version` field:
+
+| Kind | Implemented upgrade normalization |
+| --- | --- |
+| Symbol library | Expand legacy font-style atoms for modern targets; expand pin visibility atoms; move property `hide` out of `effects`; remove legacy property IDs. |
+| Schematic | Rename `tstamp` to `uuid`; rename `netclass_flag` to `directive_label`; convert old text-box `start/end` to `at/size`; expand legacy font and pin-visibility atoms; move property `hide` out of `effects`; remove legacy property IDs. |
+| Board / footprint | Rename `tstamp` to `uuid` for modern targets; expand font-style atoms; expand footprint `dnp` atoms; normalize booleans to KiCad 7-style `yes/no`; remove obsolete `tedit`; optionally convert legacy numeric net references to net names. |
+
+This is not a full semantic upgrade engine; it only normalizes syntax the
+converter already knows how to express.
+
+### Implemented Release-Target Coverage
+
+The C++ rules are cutoff-driven, so each release alias activates the rules whose
+cutoffs are newer than that file family's target version. The following summary
+lists the practical coverage for the non-V6 stable targets.
+
+#### KiCad 10 Target
+
+KiCad 10 targets mostly remove post-10.0/current-development constructs:
+
+| Kind | Implemented handling |
+| --- | --- |
+| Symbol library | Remove native ellipse and ellipse-arc primitives introduced after the 10.0 symbol target. |
+| Schematic | Remove post-10.0 `locked` fields, native ellipse primitives, and `net_chain` / `net_chains`. |
+| Board / footprint | Remove or downgrade post-10.0 typed/extruded model blocks, native ellipse primitives, dielectric frequency stackup fields, net chains, copper thieving fill mode, pad `sim_electrical_type`, and table-cell `knockout`. |
+| Project side files | No legacy `.kicad_prl` or library-table compatibility rewrite is generated for the V10 suffix. |
+
+#### KiCad 9 Target
+
+KiCad 9 targets remove KiCad 10 and current-development syntax while retaining
+features that are valid at the KiCad 9 file versions:
+
+| Kind | Implemented handling |
+| --- | --- |
+| Symbol library | Remove jumper pin groups, rounded rectangles, native ellipses, symbol `in_pos_files`, `duplicate_pin_numbers_are_jumpers`, `power` class flags, property `show_name` / `do_not_autoplace`, and font `face`. |
+| Schematic | Remove rounded rectangles, schematic variants, native ellipses, net chains, post-target `locked`, `embedded_fonts`, custom body styles, sheet assembly/simulation flags, symbol `in_pos_files`, jumper/power class flags, font `face`, property formatting fields, and root `group` nodes. |
+| Board / footprint | Remove or downgrade IPC-4761 via protection, jumper pad fields, component-class placement sources, PCB hatch fills, custom layer counts, rounded rectangles, PCB point objects, barcodes, backdrill/post-machining fields, PCB variants, current-development features, and font `face`; rebuild legacy numeric board netcodes. Tenting is downgraded from boolean front/back lists to legacy atoms for this target range. |
+| Project side files | No legacy `.kicad_prl` rewrite is generated for V9. |
+
+#### KiCad 8 Target
+
+KiCad 8 targets remove KiCad 9/10/current syntax and also normalize several
+late-KiCad-8 development forms back to the 8.0.0 file versions:
+
+| Kind | Implemented handling |
+| --- | --- |
+| Symbol library | Remove V9+ embedded files/private fields and V10+ jumper, rounded-rectangle, and ellipse syntax; remove `embedded_fonts`, font `face`, symbol/property formatting fields; add legacy property IDs and move property visibility into `effects`; convert font style and pin-visibility booleans to older atom syntax. |
+| Schematic | Remove V9+ tables, rule areas, embedded files/private fields and V10+ rounded-rectangle, variant, body-style, and ellipse/net-chain syntax; remove text and sheet simulation/assembly flags, symbol/property formatting fields, font `face`; add legacy property IDs and move property visibility into `effects`; convert font and pin visibility booleans to older atom syntax; remove root `group` nodes. |
+| Board / footprint | Remove V9+ tables, tenting, embedded files/fonts, component classes, complex padstacks, via stacks, rule areas, via protection, arbitrary user-layer qualifiers, custom layer counts, rounded rectangles, PCB points, barcodes, backdrill/post-machining, variants, and current-development features. Also remove graphic/track soldermask margin/layer fields, table-cell angle, text render caches, textbox/table-cell/layer knockout, model `hide`, font `face`, and add legacy numeric netcodes. `solder_paste_margin_ratio` is renamed to `solder_paste_ratio`. |
+| Project side files | Generate legacy numeric-ID `.kicad_prl` display settings for V8 boards. |
+
+#### KiCad 7 Target
+
+KiCad 7 targets remove KiCad 8/9/10/current syntax and apply additional parser
+compatibility rewrites around PCB fields, UUIDs, and footprint data:
+
+| Kind | Implemented handling |
+| --- | --- |
+| Symbol library | Remove V8+ `generator_version`, embedded fonts/files, V9 private fields, V10 jumper/rounded/ellipse syntax, symbol `exclude_from_sim`, position-file and property formatting fields, jumper/power class flags, and font `face`; add legacy property IDs; move property visibility into `effects`; convert font and visibility booleans to atom syntax. |
+| Schematic | Remove V8+ `generator_version` and `fields_autoplaced`, V9+ tables/rule areas/embedded/private fields, V10+ rounded/variant/body-style syntax, post-target simulation exclusion fields, sheet assembly/simulation flags, symbol/property formatting fields, font `face`, and root `group` nodes. UUID atoms are unquoted for KiCad 6/7 parsers, and property visibility/IDs are downgraded to legacy placement. |
+| Board / footprint | Remove V8+ generated objects, teardrops, tables, embedded files/fonts, component classes, pad/via stacks, rule areas, via protection, and newer target syntax. Convert user-layer type qualifiers to `user`; remove graphic/track soldermask fields, table angles, render caches, knockout flags, model `hide`, graphic net connectivity, group locked fields, via layer-connection fields, footprint jumper/net-tie/unit fields, font `face`, and legacy-incompatible footprint attr atoms. Convert PCB footprint properties back to `fp_text`, rename `uuid`/`id` back to `tstamp`/`id` legacy forms, rename solder-paste and thermal fields, convert strokes to legacy `width`, convert dimensions to visible graphics, downgrade booleans/presence atoms, and rebuild numeric netcodes. |
+| Project side files | Generate legacy numeric-ID `.kicad_prl` display settings for V7 boards. |
 
 ### Document Detection and Project Handling
 
@@ -434,14 +498,19 @@ S-expression head:
 
 If the root head is missing or unknown, it falls back to file extension:
 `.kicad_sym`, `.kicad_sch`, `.kicad_pcb`, `.kicad_mod`, `.kicad_dru`, and
-`.kicad_wks`.
+`.kicad_wks`. Legacy `.sch`, `.lib`, `.dcm`, and `.pro` are also detected as
+legacy KiCad kinds, but direct conversion from those legacy file families is not
+implemented in the current phase.
 
 When converting a project directory or `.kicad_pro`, it copies only editable
 KiCad project inputs and common local 3D model files. Generated outputs,
 history/backup folders, Gerbers, fabrication outputs, BOMs, and temporary files
-are skipped. For KiCad 7 and KiCad 8 board targets it also creates legacy
-`.kicad_prl` local board display settings so converted through-hole pads remain
-visible.
+are skipped. For KiCad 6, 7, and 8 board targets it also creates legacy
+`.kicad_prl` local board display settings with numeric `visible_items`, full
+`visible_layers`, and the older local-settings meta version so converted objects
+remain visible in older GUIs. For KiCad 6 project targets it additionally
+removes top-level `version` nodes from `sym-lib-table` / `fp-lib-table` and
+rebuilds root-level schematic hierarchy instance tables across child sheets.
 
 ### Symbol Library Rules
 
@@ -463,9 +532,11 @@ Compatibility rewrites:
 | ---: | --- |
 | `< 20231120` | Remove root `generator_version` fields |
 | `< 20241209` | Remove `embedded_fonts`; add legacy property IDs; move property `hide` flags into `effects` |
+| `< 20230409` | Remove symbol-library `symbol/exclude_from_sim` simulation exclusion flags |
 | `< 20240108` | Convert font `(bold yes/no)` and `(italic yes/no)` lists to legacy presence atoms |
 | `<= 20241209` | Remove font `face` fields |
 | `< 20241004` | Convert boolean `hide` lists to legacy atoms; flatten `pin_names` / `pin_numbers` hide lists |
+| `<= 20211014` | Add KiCad 6 standard property IDs: `Reference=0`, `Value=1`, `Footprint=2`, `Datasheet=3`, `ki_keywords=4`, `ki_description=5`, `ki_fp_filters=6` |
 | `< 20251024` | Remove symbol `in_pos_files`; remove property `show_name` and `do_not_autoplace` |
 | `< 20250324` | Remove `duplicate_pin_numbers_are_jumpers` |
 | `< 20250227` | Remove symbol `power` class flags |
@@ -497,12 +568,20 @@ Compatibility rewrites:
 | `< 20250827` | Remove `body_styles` and `body_style` |
 | `< 20250114` | Remove text/textbox `exclude_from_sim` |
 | `<= 20230121` | Remove all remaining `exclude_from_sim` |
+| `< 20220822` | Remove text, label, and directive-label `hyperlink` fields |
+| `< 20220914` | Remove placed-symbol `dnp` flags |
+| `< 20220124` | Rename root `directive_label` nodes back to `netclass_flag` |
 | `< 20251024` | Remove symbol `in_pos_files` |
 | `< 20250324` | Remove `duplicate_pin_numbers_are_jumpers` |
 | `< 20250227` | Remove symbol `power` class flags |
 | `< 20241004` | Convert boolean `hide` lists to legacy atoms; flatten pin visibility hide lists |
+| `<= 20211123` | Remove library-symbol `pin/alternate` definitions |
 | `< 20240108` | Convert font bold/italic boolean lists to legacy atoms |
 | `<= 20250114` | Remove font `face` fields |
+| `<= 20230121` | Unquote `uuid` atoms for KiCad 6/7 parsers |
+| `<= 20211123` | Generate KiCad 6 root-level `sheet_instances` and `symbol_instances` when the source root schematic already has instance data; child sheets are not given root instance tables |
+| `<= 20211123` | Add KiCad 6 standard schematic property IDs and normalize sheet property names/IDs to `Sheet name=0` and `Sheet file=1` |
+| `<= 20211123` | Remove symbol-internal `instances` blocks after the KiCad 6 root instance table has been generated |
 | `< 20241209` | Add legacy property IDs; move property `hide` flags into `effects` |
 | `< 20251028` | Remove property `show_name` and `do_not_autoplace` |
 
@@ -537,12 +616,12 @@ Generic parser gates:
 | 20260512 | `net_chains`, `net_chain` | PCB net chains |
 | 20260513 | `thieving` | Copper thieving zone fill mode |
 
-Current development coverage gaps found in local KiCad `10.99.0-1273-gd90e32b6a0`:
+Current development coverage notes from local KiCad `10.99.0-1273-gd90e32b6a0`:
 
-| Introduced | Missing downgrade handling | Notes |
+| Introduced | Handling | Notes |
 | ---: | --- | --- |
-| 20260521 | Pad `sim_electrical_type` | Serialized as `(sim_electrical_type source)` or `(sim_electrical_type sink)` on pads; not yet present in `kicad-backport-cplus` feature gates. |
-| 20260603 | Table-cell `knockout` flag | Must be handled contextually for PCB table cells; `knockout` is not safe as a global token gate because other object types also use it. |
+| 20260521 | Implemented | Pad child `sim_electrical_type` is removed for targets older than `20260521`. |
+| 20260603 | Implemented | Table-cell child `knockout` is removed contextually for targets older than `20260603`; `knockout` is not used as a global token gate because other object types also use it. |
 
 Compatibility rewrites:
 
@@ -552,28 +631,44 @@ Compatibility rewrites:
 | `< 20260513` | Replace copper thieving zone fill mode with polygon fill |
 | `>= 20220225` | Remove obsolete footprint `tedit` fields |
 | `>= 20200628` | Remove obsolete board `visible_elements` settings |
+| `< 20260603` | Remove PCB table-cell `knockout` fields |
 | `< 20240703` | Convert user-layer type qualifiers `front`, `back`, `auxiliary` to `user` |
 | `< 20241010` | Remove graphic `solder_mask_margin` fields |
 | `< 20241030` | Convert dimension boolean fields to legacy atoms; remove dimension `arrow_direction` |
+| `< 20250210` | Remove PCB text `render_cache`; remove textbox `knockout`; remove `knockout` atoms from layer lists; add `filled_areas_thickness no` to cached zone fills where needed |
 | `< 20241009` | Remove zone `placement` fields |
+| `<= 20221018` | Remove zone `attr`; remove pad/zone `thermal_bridge_angle`; rename pad/zone `thermal_bridge_width` to legacy `thermal_width` |
+| `< 20240108` | Remove `setup/allow_soldermask_bridges_in_footprints`; remove group `locked`; remove via layer-connection fields such as `keep_end_layers`, `start_end_only`, and `zone_layer_connections` |
 | `< 20241007` | Remove track `solder_mask_margin` and `solder_mask_layer` fields |
 | `< 20240617` | Remove PCB table cell `angle` |
+| `< 20260521` | Remove pad `sim_electrical_type` |
 | `< 20250228` | Convert tenting front/back boolean lists to legacy atoms; remove IPC-4761 protection fields |
 | `< 20231212` | Convert `locked` and `hide` boolean lists to presence atoms; remove `unlocked`; remove model `hide` |
 | `< 20231014` | Remove `generator_version` |
 | `< 20230924` | Convert `pcbplotparams` `yes/no` booleans to `true/false`; convert shape fill `no` to `none` |
 | `< 20230730` | Remove graphic shape `net` connectivity |
-| `< 20240108` | Remove group `locked`; convert font bold/italic boolean lists to legacy atoms |
+| `< 20240108` | Convert font bold/italic boolean lists to legacy atoms |
 | `< 20230620` | Convert footprint `Reference` and `Value` properties back to `fp_text`; convert `Description` to `ki_description`; map `sheetname`/`sheetfile` to properties |
 | `< 20231231` | Rename scoped `uuid` fields back to `tstamp`; rename group/generated `uuid` back to `id` |
-| `< 20250324` | Remove footprint jumper pad fields |
-| `<= 20221018` | Remove footprint `dnp` attributes; remove pad/via `remove_unused_layers`; convert dimensions to visible text annotations; remove legacy-incompatible `locked`; downgrade free via fields |
+| `< 20250324` | Remove footprint jumper pad fields: `duplicate_pad_numbers_are_jumpers` and `jumper_pad_groups` |
+| `<= 20221018` | Remove footprint `dnp` attributes, `net_tie_pad_groups`, `units`, and `allow_missing_courtyard`; remove pad/via `remove_unused_layers`; convert dimensions to visible graphics; remove legacy-incompatible `locked`; downgrade free via fields; convert PCB graphic `stroke` blocks to legacy `width` fields |
 | `< 20250309` | Remove `component_class` from placement rules |
 | `< 20250222` | Convert PCB hatch/reverse-hatch/cross-hatch shape fills to solid fill |
-| `< 20250210` | Remove PCB text box `knockout`; add `filled_areas_thickness no` to cached zone fills where needed |
 | `<= 20241229` | Remove PCB font `face` fields |
 | `< 20251101` | Remove pad/via post-machining fields |
 | `< 20251028` | Rebuild legacy numeric board netcodes and root-level net declarations |
+
+KiCad 6 parser-specific fixes observed in project-level tests:
+
+| Area | Implemented fix |
+| --- | --- |
+| PCB setup | Remove `setup/allow_soldermask_bridges_in_footprints` for pre-8 board targets. |
+| PCB footprints | Remove `net_tie_pad_groups`, `units`, jumper pad groups, and `allow_missing_courtyard` attr atoms for KiCad 6/7 board targets. |
+| PCB zones and pads | Remove zone `attr`, remove `thermal_bridge_angle`, and rename `thermal_bridge_width` to `thermal_width` for KiCad 6/7 board targets. |
+| PCB text and tables | Remove text `render_cache`, textbox `knockout`, table-cell `knockout`, and layer-list `knockout` where older parsers reject them. |
+| Symbol libraries | Remove symbol `exclude_from_sim` for targets older than `20230409` and add KiCad 6 standard property IDs. |
+| Schematics | Remove pin `alternate`, generate KiCad 6 root instance tables, normalize root-sheet instance paths, normalize sheet property names/IDs, and remove symbol-internal `instances`. Placed symbol pin UUID blocks are intentionally retained because KiCad 6 uses them for instance association. |
+| Project side files | Generate numeric-ID `.kicad_prl` display settings for V6/V7/V8 and remove library-table top-level `version` nodes for V6. |
 
 ### Worksheet and Design Rules
 

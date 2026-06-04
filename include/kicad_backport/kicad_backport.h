@@ -21,7 +21,11 @@ enum class KIND
     BOARD,
     FOOTPRINT,
     DESIGN_RULES,
-    WORKSHEET
+    WORKSHEET,
+    LEGACY_SCHEMATIC,
+    LEGACY_SYMBOL_LIBRARY,
+    LEGACY_SYMBOL_DOCUMENTATION,
+    LEGACY_PROJECT
 };
 
 // Parsed KiCad document with its detected type and file version.
@@ -32,13 +36,18 @@ struct DOCUMENT
     KIND                      Kind = KIND::UNKNOWN;
     std::string               Version;
     size_t                    SourceBytes = 0;
+    std::string               RawText;
 };
 
 // Per-file result used by convert and inspect commands.
 struct FILE_REPORT
 {
     std::string              Path;
+    std::string              InputPath;
+    std::string              OutputPath;
     std::string              Kind;
+    std::string              SourceKind;
+    std::string              TargetKind;
     std::string              SourceVersion;
     std::string              TargetVersion;
     bool                     Changed = false;
@@ -90,7 +99,7 @@ private:
     void writeReport( const std::filesystem::path& aPath,
                       const std::vector<FILE_REPORT>& aReports ) const;
 
-    // Creates legacy local board display settings for KiCad 7/8.
+    // Creates legacy local board display settings for KiCad 6/7/8.
     void ensureLegacyProjectLocalSettings( const std::filesystem::path& aPath,
                                            const std::string& aTargetSuffix ) const;
 };

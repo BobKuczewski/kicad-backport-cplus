@@ -1,6 +1,6 @@
 # KiCad Backport C++
 
-Standalone C++17 implementation of the KiCad Backport downgrade CLI.  The tool
+Standalone C++17 implementation of the KiCad Backport downgrade CLI. The tool
 converts newer KiCad S-expression project files to older KiCad file formats
 while preferring equivalent legacy syntax over deletion.
 
@@ -25,7 +25,7 @@ The command line interface mirrors the Go implementation and is intended to be
 usable both directly and from the Python plugin:
 
 ```text
-kicad-backport convert --target-version <7.0|8.0|9.0|10.0|number> [--report report.json] <input> <output>
+kicad-backport convert --target-version <6.0|7.0|8.0|9.0|10.0|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport version
 ```
@@ -41,8 +41,23 @@ Examples:
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
 ```
 
-Supported release aliases are `7.0`, `8.0`, `9.0`, and `10.0`. A raw KiCad file
-format version number can also be passed when testing a specific parser cutoff.
+Supported release aliases are `6.0`, `7.0`, `8.0`, `9.0`, and `10.0`. A raw
+KiCad file format version number can also be passed when testing a specific
+parser cutoff.
+
+## Support Status
+
+The current implementation targets KiCad 6 through KiCad 10 S-expression file
+families:
+
+| Target | Status |
+| --- | --- |
+| KiCad 10 | Removes post-10.0/current-development syntax, including 20260521 pad `sim_electrical_type` and 20260603 table-cell `knockout`. |
+| KiCad 9 | Removes or downgrades KiCad 10/current features such as variants, barcodes, backdrill/post-machining, jumper pads, and netcode omission. |
+| KiCad 8 | Removes KiCad 9+ tables, embedded files, component classes, padstacks, via stacks, rule areas, and arbitrary user-layer forms. |
+| KiCad 7 | Applies older parser compatibility rewrites for UUID/tstamp forms, PCB footprint fields, teardrops, generated objects, images, and text boxes. |
+| KiCad 6 | Basic file downgrade support is largely complete. Converted test projects have been manually opened in the actual KiCad 6 application for validation. |
+| KiCad 5 and older | Not implemented yet. The code now separates legacy document detection, path mapping, and upgrade/downgrade rules to prepare for future V5 support. |
 
 ## Downgrade Policy
 
@@ -56,8 +71,13 @@ target format:
 - Each removal or compatibility rewrite is reported as a warning.
 
 For example, legacy net codes are rebuilt for old PCB formats, newer boolean
-field forms are converted to presence atoms where needed, and KiCad 7 PCB
-dimensions are preserved as visible text annotations.
+field forms are converted to presence atoms where needed, KiCad 7 PCB
+dimensions are preserved as visible graphics, and legacy project-local board
+visibility files are generated for KiCad 6/7/8 targets.
+
+When converting a project directory or `.kicad_pro`, the tool copies only
+editable KiCad inputs and common local 3D model files. Generated manufacturing
+outputs, history/backup folders, Gerbers, BOMs, and temporary files are skipped.
 
 ## Project Layout
 
@@ -65,11 +85,14 @@ The code is split by responsibility so later KiCad versions can be added with
 small, localized changes:
 
 - `src/kicad_backport.cpp`: CLI flow, project copy/filtering, file conversion.
+- `src/kicad_backport_document.cpp`: KiCad document kind detection.
+- `src/kicad_backport_legacy.cpp`: legacy KiCad document loading scaffolding.
+- `src/kicad_backport_pathmap.cpp`: target file extension mapping helpers.
+- `src/kicad_backport_report.cpp`: JSON report formatting.
 - `src/kicad_backport_rules.cpp`: version gates and downgrade rule ordering.
 - `src/kicad_backport_rule_rewriters.cpp`: S-expression tree rewrite helpers.
+- `src/kicad_backport_upgrade.cpp`: limited syntax normalization for older source files.
 - `src/kicad_backport_versions.cpp`: KiCad release aliases and format versions.
-- `src/kicad_backport_document.cpp`: KiCad document kind detection.
-- `src/kicad_backport_report.cpp`: JSON report formatting.
 - `src/kicad_backport_util.cpp`: shared string, file, and JSON helpers.
 - `src/sexpr.cpp`: minimal KiCad-style S-expression parser/formatter.
 - `src/internal/`: private implementation headers used only by source files.
@@ -179,7 +202,7 @@ formatting conventions.
 
 ## Validation
 
-After conversion, validate each target with the matching KiCad CLI version. For
+After conversion, validate each target with the matching KiCad version. For
 KiCad 8/9/10 this usually means running schematic ERC and PCB DRC:
 
 ```powershell
@@ -194,6 +217,16 @@ verify that converted schematic and PCB files load:
 & 'D:\KiCad\7.0\bin\kicad-cli.exe' sch export netlist --output netlist.net project.kicad_sch
 & 'D:\KiCad\7.0\bin\kicad-cli.exe' pcb export gerbers --output gerbers project.kicad_pcb
 ```
+
+KiCad 6 has limited CLI validation coverage. For PCB files, a quick parser check
+can be done through KiCad 6's Python module:
+
+```powershell
+& 'D:\KiCad\6.0\bin\python.exe' -c "import pcbnew; pcbnew.LoadBoard(r'E:\tmp\project_V6\project.kicad_pcb'); print('pcb ok')"
+```
+
+For KiCad 6 schematics and symbols, manual GUI opening remains the most useful
+end-to-end validation. Current V6 regression samples have been checked this way.
 
 ERC/DRC violations are design-rule findings from the project. They are not
 format conversion failures unless KiCad reports a load or parse error.

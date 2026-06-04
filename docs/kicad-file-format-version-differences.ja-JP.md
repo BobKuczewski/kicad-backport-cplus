@@ -1,38 +1,39 @@
-# KiCad ファイル形式バージョンの差分
+# KiCad ファイル形式のバージョンの違い
 
-この文書は英語版リファレンスと同じ構造で同期しています。KiCad の技術用語、token、upstream の変更名は誤訳を避けるため意図的にそのまま残しています。
+このドキュメントでは、バックポートで使用される KiCad ファイル形式のバージョンの違いを追跡します。
+コンバータ。新しい安定バージョンまたは開発バージョンを追加できるように構成されています
+ファイルの名前を変更せずに。
 
-この文書は、backport converter が使用する KiCad file format version の差分を整理します。
-新しい stable version や development version を追加しても、ファイル名を変更しなくて済む構成にしています。
+最終更新: 2026-06-05。
 
-最終更新: 2026-06-04。
+## 情報源と方法
 
-## 情報源と確認方法
+レビューした情報源:
 
-確認した情報源:
-
-- KiCad 公式 GitLab tag と source file。
-- `E:/WORKS/MY/kicadProject/kicad` の local KiCad checkout。
-- Local refs and tags: `origin/4.0`, `4.0.0`, `origin/5.0`, `origin/5.1`,
+- KiCad 公式の GitLab タグとソース ファイル。
+- ローカル KiCad チェックアウト (`E:/WORKS/MY/kicadProject/kicad`)。
+- ローカル参照とタグ: `origin/4.0`、`4.0.0`、`origin/5.0`、`origin/5.1`、
   `5.0.0`, `5.1.0`, `6.0.0`, `7.0.0`, `8.0.0`, `9.0.0`, `10.0.0`,
-  and `origin/10.0`.
-- local KiCad `master`。10.0 以降の development branch 境界を確認する目的にのみ使用。
-- `kicad-backport-cplus` 実装。特に:
+および`origin/10.0`。
+- ローカル KiCad `master`、10.0 以降の開発ブランチを識別するためにのみ使用されます
+境界線。
+- `kicad-backport-cplus` 実装、特に:
   - `src/kicad_backport_versions.cpp`
   - `src/kicad_backport_rules.cpp`
   - `src/kicad_backport_rule_rewriters.cpp`
+  - `src/kicad_backport_upgrade.cpp`
   - `src/kicad_backport.cpp`
-- version header file:
-  - `pcbnew/kicad_plugin.h` for KiCad 4/5 PCB formats.
-  - `pcbnew/plugins/kicad/pcb_plugin.h` for KiCad 6/7 PCB formats.
+- バージョンヘッダーファイル:
+  - KiCad 4/5 PCB フォーマットの場合は `pcbnew/kicad_plugin.h`。
+  - KiCad 6/7 PCB フォーマットの場合は `pcbnew/plugins/kicad/pcb_plugin.h`。
   - `eeschema/sch_file_versions.h`
   - `pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h`
   - `include/drawing_sheet/ds_file_versions.h`
   - `pcbnew/drc/drc_rule_parser.h`
-  - `eeschema/general.h` and `eeschema/sch_legacy_plugin.h` for KiCad 4/5
-    legacy schematic formats.
+  - KiCad 4/5 の `eeschema/general.h` および `eeschema/sch_legacy_plugin.h`
+従来の回路図形式。
 
-version number は KiCad source の有効な macro から取得しています:
+バージョン番号は、アクティブな KiCad ソース マクロから取得されます。
 
 - `SEXPR_SYMBOL_LIB_FILE_VERSION`
 - `SEXPR_SCHEMATIC_FILE_VERSION`
@@ -40,33 +41,33 @@ version number は KiCad source の有効な macro から取得しています:
 - `SEXPR_WORKSHEET_FILE_VERSION`
 - `DRC_RULE_FILE_VERSION`
 
-注記:
+注:
 
-- Board S-expression version は footprint `.kicad_mod` file にも適用されます。
-- `.kicad_dru` stayed at `20200610` from KiCad 6.0 through current 10.99 sources.
-  This only means the version macro did not change; rule semantics may still have
-  changed.
-- `.kicad_pro` is a JSON project file and uses settings/schema migration instead
-  of these S-expression date version macros. Project JSON schema differences
-  should be tracked separately.
-- KiCad 4/5 の schematic と symbol library は legacy `.sch`、`.lib`、`.dcm` file であり、
-  `.kicad_sch` や `.kicad_sym` ではありません。
+- ボードの S 式バージョンは、フットプリント `.kicad_mod` ファイルもカバーします。
+- `.kicad_dru` は、KiCad 6.0 から現在の 10.99 ソースまで `20200610` のままでした。
+これは、バージョン マクロが変更されなかったことを意味するだけです。ルールのセマンティクスはまだ残っている可能性があります
+変わりました。
+- `.kicad_pro` は JSON プロジェクト ファイルであり、代わりに設定/スキーマ移行を使用します。
+これらの S 式の日付バージョン マクロ。プロジェクトの JSON スキーマの違い
+個別に追跡する必要があります。
+- KiCad 4/5 の回路図とシンボル ライブラリはレガシー `.sch`、`.lib`、および
+`.kicad_sch` や `.kicad_sym` ではなく、`.dcm` ファイル。
 
-## 主要ファイルファミリーマトリクス
+## 主要なファイルファミリーのマトリックス
 
-| KiCad major version | Project | Schematic | Symbol library | PCB / footprint | Worksheet | Design rules | Key point |
+| KiCad メジャー バージョン | プロジェクト | 回路図 | シンボルライブラリ | PCB / フットプリント | ワークシート | デザインルール | キーポイント |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 4.0 | Legacy `.pro` | Legacy `.sch`, `EESCHEMA_VERSION=2` | `.lib` `EESchema-LIBRARY Version 2.3`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S-expression, version `4` | Legacy drawing sheet | No standalone `.kicad_dru` | PCB was already S-expression; schematic and symbol libraries were still legacy. |
-| 5.0 / 5.1 | Legacy `.pro` | Legacy `.sch`, `EESCHEMA_VERSION=4` | Commonly `.lib` `Version 2.4`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S-expression, version `20171130` | Legacy drawing sheet | No standalone `.kicad_dru` | PCB added custom pads, multi-layer keepouts, and 3D model offset changes; schematic remained legacy. |
-| 6.0 | JSON `.kicad_pro`, `.kicad_prl` | `.kicad_sch` `20211123` | `.kicad_sym` `20211014` | `20211014` | `.kicad_wks` `20210606` | `.kicad_dru` `20200610` | New schematic and symbol S-expression formats. |
-| 7.0 | JSON `.kicad_pro` | `.kicad_sch` `20230121` | `.kicad_sym` `20220914` | `20221018` | `.kicad_wks` `20220228` | `20200610` | Text boxes, fonts, DNP, simulation model changes, net ties, images, teardrop keywords. |
-| 8.0 | JSON `.kicad_pro` | `.kicad_sch` `20231120` | `.kicad_sym` `20231120` | `20240108` | `.kicad_wks` `20231118` | `20200610` | `generator_version`, V8 cleanup, PCB fields, generated objects, UUID normalization. |
-| 9.0 | JSON `.kicad_pro` | `.kicad_sch` `20250114` | `.kicad_sym` `20241209` | `20241229` | `.kicad_wks` `20231118` | `20200610` | Embedded files, tables, rule areas, component classes, padstacks, via stacks, arbitrary user layers. |
-| 10.0 | JSON `.kicad_pro` | `.kicad_sch` `20260306` | `.kicad_sym` `20251024` | `20260206` | `.kicad_wks` `20231118` | `20200610` | Variants, jumper pads, barcodes, via protection, backdrill, split via types, stopped writing netcodes. |
+| 4.0 | レガシー `.pro` | レガシー `.sch`、`EESCHEMA_VERSION=2` | `.lib` `EESchema-LIBRARY Version 2.3`、`.dcm` | `.kicad_pcb` / `.kicad_mod` S 式、バージョン `4` | 従来の図面シート | スタンドアロン `.kicad_dru` はありません | PCB はすでに S 発現でした。回路図ライブラリとシンボル ライブラリは依然としてレガシーでした。 |
+| 5.0 / 5.1 | レガシー `.pro` | レガシー `.sch`、`EESCHEMA_VERSION=4` | 通常は `.lib` `Version 2.4`、`.dcm` | `.kicad_pcb` / `.kicad_mod` S 式、バージョン `20171130` | 従来の図面シート | スタンドアロン `.kicad_dru` はありません | PCB はカスタム パッド、マルチレイヤー キープアウト、3D モデル オフセットの変更を追加しました。回路図はレガシーのままでした。 |
+| 6.0 | JSON `.kicad_pro`、`.kicad_prl` | `.kicad_sch` `20211123` | `.kicad_sym` `20211014` | `20211014` | `.kicad_wks` `20210606` | `.kicad_dru` `20200610` | 新しい回路図とシンボルの S 式形式。 |
+| 7.0 | JSON `.kicad_pro` | `.kicad_sch` `20230121` | `.kicad_sym` `20220914` | `20221018` | `.kicad_wks` `20220228` | `20200610` | テキスト ボックス、フォント、DNP、シミュレーション モデルの変更、ネット タイ、画像、ティアドロップ キーワード。 |
+| 8.0 | JSON `.kicad_pro` | `.kicad_sch` `20231120` | `.kicad_sym` `20231120` | `20240108` | `.kicad_wks` `20231118` | `20200610` | `generator_version`、V8 クリーンアップ、PCB フィールド、生成されたオブジェクト、UUID 正規化。 |
+| 9.0 | JSON `.kicad_pro` | `.kicad_sch` `20250114` | `.kicad_sym` `20241209` | `20241229` | `.kicad_wks` `20231118` | `20200610` | 埋め込みファイル、テーブル、ルール領域、コンポーネントクラス、パッドスタック、ビアスタック、任意のユーザーレイヤー。 |
+| 10.0 | JSON `.kicad_pro` | `.kicad_sch` `20260306` | `.kicad_sym` `20251024` | `20260206` | `.kicad_wks` `20231118` | `20200610` | バリアント、ジャンパー パッド、バーコード、ビア保護、バックドリル、スプリット ビア タイプ、ネットコードの書き込みの停止。 |
 
-## 安定版バージョンマトリクス
+## 安定バージョンのマトリックス
 
-| KiCad tag | `.kicad_sym` | `.kicad_sch` | `.kicad_pcb` / `.kicad_mod` | `.kicad_wks` | `.kicad_dru` |
+| KiCad タグ | `.kicad_sym` | `.kicad_sch` | `.kicad_pcb` / `.kicad_mod` | `.kicad_wks` | `.kicad_dru` |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `6.0.0` | 20211014 | 20211123 | 20211014 | 20210606 | 20200610 |
 | `7.0.0` | 20220914 | 20230121 | 20221018 | 20220228 | 20200610 |
@@ -74,337 +75,339 @@ version number は KiCad source の有効な macro から取得しています:
 | `9.0.0` | 20241209 | 20250114 | 20241229 | 20231118 | 20200610 |
 | `10.0.0` | 20251024 | 20260306 | 20260206 | 20231118 | 20200610 |
 
-## KiCad 4/5 legacy 境界
+## KiCad 4/5 レガシー境界
 
-KiCad 4 と 5 の schematic data は、単に古い S-expression version というだけではありません。
-schematic と symbol-library の file family 自体が異なります:
+KiCad 4 および 5 は、単に回路図データ用の古い S 式バージョンではありません。彼らは
+別の回路図ファイル ファミリとシンボル ライブラリ ファイル ファミリを使用します。
 
-| Area | KiCad 4.0 | KiCad 5.0 / 5.1 |
+| エリア | KiCad 4.0 | KiCad5.0 / 5.1 |
 | --- | --- | --- |
-| Schematic header | `EESchema Schematic File Version 2` | `EESchema Schematic File Version 4` |
-| Schematic macro | `EESCHEMA_VERSION 2` | `EESCHEMA_VERSION 4` |
-| Symbol library header | Commonly `EESchema-LIBRARY Version 2.3` | Commonly `EESchema-LIBRARY Version 2.4` |
-| PCB version | `4` | `20171130` |
+| 回路図ヘッダー | `EESchema Schematic File Version 2` | `EESchema Schematic File Version 4` |
+| 回路図マクロ | `EESCHEMA_VERSION 2` | `EESCHEMA_VERSION 4` |
+| シンボルライブラリヘッダー | 通常 `EESchema-LIBRARY Version 2.3` | 通常 `EESchema-LIBRARY Version 2.4` |
+| 基板バージョン | `4` | `20171130` |
 
-KiCad 6 development line より前の KiCad 5 PCB/footprint version point:
+KiCad 5 PCB/フットプリント バージョンは、KiCad 6 開発ラインよりも前にあります。
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20160815 | Differential pair settings per net class |
-| 20170123 | `EDA_TEXT` refactor; moved `hide` |
-| 20170920 | Long pad names and custom pad shape |
-| 20170922 | Keepout zones can exist on multiple layers |
-| 20171114 | Save 3D model offset in mm instead of inches |
-| 20171125 | Locked/unlocked footprint text |
-| 20171130 | 3D model offset written using the `offset` parameter |
+| 20160815 | ネットクラスごとの差動ペア設定 |
+| 20170123 | `EDA_TEXT` リファクタリング; `hide` を移動しました |
+| 20170920 | 長いパッド名とカスタムパッド形状 |
+| 20170922 | キープアウト ゾーンは複数のレイヤーに存在できます |
+| 20171114 | 3D モデルのオフセットをインチではなく mm で保存します |
+| 20171125 | ロック/ロック解除されたフットプリントのテキスト |
+| 20171130 | `offset` パラメータを使用して書き込まれた 3D モデルのオフセット |
 
-backport への影響:
+バックポートの影響:
 
-- KiCad 4/5 schematic targets require a legacy `.sch` writer, not just a
-  `.kicad_sch` version rewrite.
-- KiCad 4/5 symbol targets require legacy `.lib` / `.dcm` output or an explicit
-  lossy/unimplemented warning.
-- KiCad 4 board targets use version `4`; KiCad 5 board targets use `20171130`.
-- V6+ UUIDs, text boxes, embedded files, variants, tables, rule areas, component
-  classes, padstacks, via stacks, backdrill, and similar structures cannot be
-  preserved directly in V4/V5 files.
+- KiCad 4/5 回路図ターゲットには、単なる `.sch` ライターではなく、従来の `.sch` ライターが必要です。
+`.kicad_sch` バージョンの書き換え。
+- KiCad 4/5 シンボル ターゲットには、従来の `.lib` / `.dcm` 出力または明示的な出力が必要です
+損失のある/未実装の警告。
+- KiCad 4 ボード ターゲットはバージョン `4` を使用します。 KiCad 5 ボード ターゲットは `20171130` を使用します。
+- V6+ UUID、テキスト ボックス、埋め込みファイル、バリアント、テーブル、ルール領域、コンポーネント
+クラス、パッドスタック、ビアスタック、バックドリル、および同様の構造は使用できません。
+V4/V5 ファイルに直接保存されます。
 
-## 現行開発版バージョンマトリクス
+## 現在の開発バージョンのマトリックス
 
-確認した KiCad `master` branch はすでに 11.0 development に進んでいます。
-これらは 10.0 以降の development item であり、KiCad 10.0 stable format support として扱ってはいけません:
+レビューされた KiCad `master` ブランチはすでに 11.0 開発に移行しています。
+これらの調査結果は 10.0 以降の開発項目であり、KiCad としてラベル付けすることはできません
+10.0 安定フォーマットのサポート:
 
-| File type | 現行開発版 version | 注記 |
+| ファイルの種類 | 現在の開発バージョン | 注意事項 |
 | --- | ---: | --- |
-| Board `.kicad_pcb` | `20260603` | Knockout flag on table cells |
-| Footprint `.kicad_mod` | `20260603` | Footprints use the PCB S-expression version |
-| Schematic `.kicad_sch` | `20260512` | Net chains |
-| Symbol library `.kicad_sym` | `20260508` | Native ellipse primitive |
-| Worksheet `.kicad_wks` | `20231118` | Generator version / KiCad 8 cleanup |
-| Design rules `.kicad_dru` | `20200610` | No current-development-specific version bump found |
+| ボード `.kicad_pcb` | `20260603` | テーブルセルのノックアウトフラグ |
+| フットプリント `.kicad_mod` | `20260603` | フットプリントは PCB S-expression バージョンを使用します |
+| 回路図 `.kicad_sch` | `20260512` | ネットチェーン |
+| シンボルライブラリ `.kicad_sym` | `20260508` | ネイティブの楕円プリミティブ |
+| ワークシート `.kicad_wks` | `20231118` | ジェネレーターのバージョン / KiCad 8 クリーンアップ |
+| デザインルール `.kicad_dru` | `20200610` | 現在の開発固有のバージョン バンプが見つかりません |
 
-これまでに確認した 10.0 以降の開発版ステップ:
+これまでに見つかった 10.0 以降の開発バージョンの手順:
 
-| Version | File type | 変更 |
+| バージョン | ファイルの種類 | 変化 |
 | ---: | --- | --- |
-| 20260410 | Board / footprint | Extruded 3D body |
-| 20260508 | Board / footprint | Native PCB ellipse and ellipse-arc primitives |
-| 20260508 | Schematic / symbol | Native schematic/symbol ellipse and ellipse-arc primitives |
-| 20260511 | Board | Dielectric frequency-dependent stackup models |
-| 20260512 | Board / schematic | Net chains |
-| 20260513 | Board | Copper thieving zone fill mode |
-| 20260521 | Board / footprint | Pad simulation electrical types |
-| 20260603 | Board / footprint | Knockout flag on table cells |
+| 20260410 | ボード/フットプリント | 押し出し成形された 3D ボディ |
+| 20260508 | ボード/フットプリント | ネイティブ PCB 楕円および楕円弧プリミティブ |
+| 20260508 | 回路図・記号 | ネイティブの回路図/シンボルの楕円および楕円弧プリミティブ |
+| 20260511 | ボード | 誘電周波数に依存するスタックアップ モデル |
+| 20260512 | ボード/回路図 | ネットチェーン |
+| 20260513 | ボード | 銅泥棒ゾーン充填モード |
+| 20260521 | ボード/フットプリント | パッドシミュレーションの電気的タイプ |
+| 20260603 | ボード/フットプリント | テーブルセルのノックアウトフラグ |
 
-## 6.0 から 7.0
+## 6.0～7.0
 
-### Symbol Library
+### シンボルライブラリ
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20220101 | Class flags |
-| 20220102 | Fonts |
-| 20220126 | Text boxes |
-| 20220328 | Text box `start/end` changed to `at/size` |
-| 20220331 | Text colors |
-| 20220914 | Symbol unit display names |
-| 20220914 | Property IDs are no longer saved |
+| 20220101 | クラスフラグ |
+| 20220102 | フォント |
+| 20220126 | テキストボックス |
+| 20220328 | テキスト ボックス `start/end` が `at/size` に変更されました |
+| 20220331 | 文字の色 |
+| 20220914 | シンボル単位の表示名 |
+| 20220914 | プロパティ ID は保存されなくなりました |
 
-### Schematic
+### 回路図
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20220101 | Circles, arcs, rects, polys, beziers |
-| 20220102 | Dash-dot-dot |
-| 20220103 | Label fields |
-| 20220104 | Fonts |
-| 20220124 | `netclass_flag` renamed to `directive_label` |
-| 20220126 | Text boxes |
-| 20220328 | Text box `start/end` changed to `at/size` |
-| 20220331 | Text colors |
-| 20220404 | Default schematic symbol instance data |
-| 20220622 | New simulation model format |
-| 20220820 | Default symbol instance data fix |
-| 20220822 | Text object hyperlinks |
-| 20220903 | Field name visibility |
-| 20220904 | Do not autoplace field option |
-| 20220914 | DNP support |
-| 20220929 | Property IDs are no longer saved |
-| 20221002 | Instance data moved back to symbol definition |
-| 20221004 | Instance data moved back to symbol definition |
-| 20221110 | Sheet instance data moved to sheet definition |
-| 20221126 | Removed value and footprint from instance data |
-| 20221206 | Simulation model fields V6 to V7 |
-| 20230121 | `SCH_MARKER` sheet path serialization |
+| 20220101 | 円、円弧、四角形、ポリゴン、ベジェ |
+| 20220102 | 二点鎖線 |
+| 20220103 | ラベルフィールド |
+| 20220104 | フォント |
+| 20220124 | `netclass_flag` の名前が `directive_label` に変更されました |
+| 20220126 | テキストボックス |
+| 20220328 | テキスト ボックス `start/end` が `at/size` に変更されました |
+| 20220331 | 文字の色 |
+| 20220404 | デフォルトの回路図シンボル インスタンス データ |
+| 20220622 | 新しいシミュレーション モデル形式 |
+| 20220820 | デフォルトのシンボルインスタンスデータの修正 |
+| 20220822 | テキストオブジェクトのハイパーリンク |
+| 20220903 | フィールド名の可視性 |
+| 20220904 | フィールドを自動配置しないオプション |
+| 20220914 | 大日本印刷株式会社のサポート |
+| 20220929 | プロパティ ID は保存されなくなりました |
+| 20221002 | インスタンス データがシンボル定義に戻されました |
+| 20221004 | インスタンス データがシンボル定義に戻されました |
+| 20221110 | シート インスタンス データがシート定義に移動されました |
+| 20221126 | インスタンスデータから値とフットプリントを削除しました |
+| 20221206 | シミュレーションモデルフィールド V6 ～ V7 |
+| 20230121 | `SCH_MARKER` シート パスのシリアル化 |
 
-### PCB / Footprint
+### PCB / フットプリント
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20211226 | Radial dimension |
-| 20211227 | Thermal relief spoke angle overrides |
-| 20211228 | `allow_soldermask_bridges` footprint attribute |
-| 20211229 | Stroke formatting |
-| 20211230 | Dimensions in footprints |
-| 20211231 | Private footprint layers |
-| 20211232 | Fonts |
-| 20220131 | Textboxes |
-| 20220211 | Ended V5 zone fill strategy support |
-| 20220225 | Removed TEDIT |
-| 20220308 | Knockout text and locked graphic text property |
-| 20220331 | Plot on all layers selection setting |
-| 20220417 | Automatic dimension precisions |
-| 20220427 | Excluded Edge.Cuts and Margin from footprint private layers |
-| 20220609 | Teardrop keywords |
-| 20220621 | Image support |
-| 20220815 | `allow-soldermask-bridges-in-FPs` flag |
-| 20220818 | First-class net ties |
-| 20220914 | Custom-shape pad number boxes |
-| 20221018 | Via and pad zone-layer-connections |
+| 20211226 | 半径方向寸法 |
+| 20211227 | サーマルリリーフスポーク角度オーバーライド |
+| 20211228 | `allow_soldermask_bridges` フットプリント属性 |
+| 20211229 | ストロークの書式設定 |
+| 20211230 | 設置面積の寸法 |
+| 20211231 | プライベートフットプリントレイヤー |
+| 20211232 | フォント |
+| 20220131 | テキストボックス |
+| 20220211 | V5 ゾーンフィル戦略のサポートを終了しました |
+| 20220225 | TEDIT を削除しました |
+| 20220308 | ノックアウトテキストとロックされたグラフィックテキストプロパティ |
+| 20220331 | すべてのレイヤーにプロットする選択設定 |
+| 20220417 | 自動寸法精度 |
+| 20220427 | Edge.Cuts と Margin をフットプリントのプライベート レイヤーから除外しました |
+| 20220609 | ティアドロップキーワード |
+| 20220621 | 画像のサポート |
+| 20220815 | `allow-soldermask-bridges-in-FPs` フラグ |
+| 20220818 | 一流のネットタイ |
+| 20220914 | カスタム形状のパッドナンバーボックス |
+| 20221018 | ビアおよびパッドのゾーン層接続 |
 
-### Worksheet
+### ワークシート
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20220228 | Font support |
+| 20220228 | フォントのサポート |
 
-## 7.0 から 8.0
+## 7.0～8.0
 
-### Symbol Library
+### シンボルライブラリ
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20230620 | `ki_description` changed to `Description` field |
-| 20231120 | `generator_version` and V8 cleanup |
+| 20230620 | `ki_description` が `Description` フィールドに変更されました |
+| 20231120 | `generator_version` と V8 のクリーンアップ |
 
-### Schematic
+### 回路図
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20230221 | Modern power symbols, editable value = net |
-| 20230409 | `exclude_from_sim` markup |
-| 20230620 | `ki_description` changed to `Description` field |
-| 20230808 | `Sim.Enable` field moved to `exclude_from_sim` attribute |
-| 20230819 | Multiple levels of library symbol inheritance |
-| 20231120 | `generator_version` and V8 cleanup |
+| 20230221 | 最新のパワーシンボル、編集可能な値 = 正味 |
+| 20230409 | `exclude_from_sim` マークアップ |
+| 20230620 | `ki_description` が `Description` フィールドに変更されました |
+| 20230808 | `Sim.Enable` フィールドが `exclude_from_sim` 属性に移動されました |
+| 20230819 | 複数レベルのライブラリ シンボル継承 |
+| 20231120 | `generator_version` と V8 のクリーンアップ |
 
-### PCB / Footprint
+### PCB / フットプリント
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20230410 | DNP attribute propagated from schematic to `attr` |
-| 20230517 | Pad and via teardrop parameters |
-| 20230620 | PCB fields |
-| 20230730 | Graphic shapes connectivity |
-| 20230825 | Textbox explicit border flag |
-| 20230906 | Multiple image type support |
-| 20230913 | Custom-shaped-pad spoke templates |
-| 20231007 | Generative objects |
-| 20231014 | V8 file format normalization |
-| 20231212 | Reference image locking / UUIDs, footprint boolean format |
-| 20231231 | Generators and groups use `uuid` instead of `id` |
-| 20240108 | Teardrop parameters changed to explicit booleans |
+| 20230410 | DNP 属性が回路図から `attr` に伝播されました |
+| 20230517 | パッドとビアのティアドロップパラメータ |
+| 20230620 | PCB分野 |
+| 20230730 | グラフィックシェイプの接続性 |
+| 20230825 | テキストボックスの明示的な境界線フラグ |
+| 20230906 | 複数の画像タイプのサポート |
+| 20230913 | カスタム形状のパッド スポーク テンプレート |
+| 20231007 | 生成オブジェクト |
+| 20231014 | V8 ファイル形式の正規化 |
+| 20231212 | 参照画像のロック/UUID、フットプリントのブール形式 |
+| 20231231 | ジェネレーターとグループは `id` ではなく `uuid` を使用します |
+| 20240108 | ティアドロップパラメータが明示的なブール値に変更されました |
 
-### Worksheet
+### ワークシート
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20230607 | Images saved as base64 |
-| 20231118 | `generator_version` and V8 file format cleanup |
+| 20230607 | Base64として保存された画像 |
+| 20231118 | `generator_version` および V8 ファイル形式のクリーンアップ |
 
-## 8.0 から 9.0
+## 8.0～9.0
 
-### Symbol Library
+### シンボルライブラリ
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20240529 | Embedded files |
-| 20240819 | Embedded file hash algorithm changed to Murmur3 |
-| 20241209 | `SCH_FIELD` private flags |
+| 20240529 | 埋め込みファイル |
+| 20240819 | 埋め込みファイルのハッシュ アルゴリズムが Murmur3 に変更されました |
+| 20241209 | `SCH_FIELD` プライベート フラグ |
 
-### Schematic
+### 回路図
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20240101 | Tables |
-| 20240417 | Rule areas |
-| 20240602 | Sheet attributes |
-| 20240620 | Embedded files |
-| 20240716 | Multiple netclass assignments |
-| 20240812 | Netclass color highlighting |
-| 20240819 | Embedded file hash algorithm changed to Murmur3 |
-| 20241004 | Symbol `hide` uses booleans |
-| 20241209 | `SCH_FIELD` private flags |
-| 20250114 | Text variable cross references use full paths |
+| 20240101 | テーブル |
+| 20240417 | ルールエリア |
+| 20240602 | シート属性 |
+| 20240620 | 埋め込みファイル |
+| 20240716 | 複数のネットクラス割り当て |
+| 20240812 | ネットクラスのカラーハイライト |
+| 20240819 | 埋め込みファイルのハッシュ アルゴリズムが Murmur3 に変更されました |
+| 20241004 | シンボル `hide` はブール値を使用します |
+| 20241209 | `SCH_FIELD` プライベート フラグ |
+| 20250114 | テキスト変数の相互参照はフルパスを使用します |
 
-### PCB / Footprint
+### PCB / フットプリント
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20240201 | Overrides use nullable properties |
-| 20240202 | Tables |
-| 20240225 | `solder_paste_margin` rationalization |
-| 20240609 | `tenting` keyword |
-| 20240617 | Table angles |
-| 20240703 | User layer types |
-| 20240706 | Embedded files |
-| 20240819 | Embedded file hash algorithm changed to Murmur3 |
-| 20240928 | Component classes |
-| 20240929 | Complex padstacks |
-| 20241006 | Via stacks |
-| 20241007 | Tracks can carry soldermask layer and margin |
-| 20241009 | Placement rule area format evolution |
-| 20241010 | Graphic shapes can carry soldermask layer and margin |
-| 20241030 | Dimension arrow directions, `suppress_zeroes` normalization |
-| 20241129 | Normalized `keep_text_aligned` and fill properties |
-| 20241228 | Teardrop curve points changed to boolean |
-| 20241229 | User layers expanded to arbitrary count |
+| 20240201 | オーバーライドでは null 許容プロパティを使用します |
+| 20240202 | テーブル |
+| 20240225 | `solder_paste_margin` の合理化 |
+| 20240609 | `tenting` キーワード |
+| 20240617 | テーブルの角度 |
+| 20240703 | ユーザー層の種類 |
+| 20240706 | 埋め込みファイル |
+| 20240819 | 埋め込みファイルのハッシュ アルゴリズムが Murmur3 に変更されました |
+| 20240928 | コンポーネントクラス |
+| 20240929 | 複雑なパッドスタック |
+| 20241006 | スタック経由 |
+| 20241007 | トラックはソルダーマスク層とマージンを運ぶことができます |
+| 20241009 | 配置ルール領域フォーマットの進化 |
+| 20241010 | グラフィック形状はソルダーマスク層とマージンを保持できます |
+| 20241030 | 寸法矢印の方向、`suppress_zeroes` 正規化 |
+| 20241129 | 正規化された `keep_text_aligned` と塗りつぶしのプロパティ |
+| 20241228 | ティアドロップ カーブ ポイントがブール値に変更されました |
+| 20241229 | ユーザー層を任意の数まで拡張 |
 
-### Worksheet
+### ワークシート
 
-No worksheet version bump; remains `20231118`.
+ワークシートのバージョンアップはありません。 `20231118` のままです。
 
-## 9.0 から 10.0
+## 9.0～10.0
 
-### Symbol Library
+### シンボルライブラリ
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20250318 | `~` no longer means empty text |
-| 20250324 | Jumper pin groups |
-| 20250829 | Rounded rectangles |
-| 20250901 | Stacked pin notation |
-| 20250925 | Bus aliases in project file |
-| 20251024 | Property formatting updates: `do_not_autoplace`, `show_name` |
+| 20250318 | `~` は空のテキストを意味しなくなりました |
+| 20250324 | ジャンパピングループ |
+| 20250829 | 角丸長方形 |
+| 20250901 | スタックピン表記 |
+| 20250925 | プロジェクトファイル内のバスエイリアス |
+| 20251024 | プロパティの書式設定の更新: `do_not_autoplace`、`show_name` |
 
-### Schematic
+### 回路図
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20250222 | Hatched fills for shapes |
-| 20250227 | Local power symbols |
-| 20250318 | `~` no longer means empty text |
-| 20250425 | UUIDs for tables |
-| 20250513 | Groups can carry design-block `lib_id` |
-| 20250610 | Rule areas support DNP and other flags |
-| 20250827 | Custom body styles |
-| 20250829 | Rounded rectangles |
-| 20250901 | Stacked pin notation |
-| 20250922 | Schematic variants |
-| 20251012 | Flat schematic hierarchy support |
-| 20251028 | Property formatting updates: `do_not_autoplace`, `show_name` |
-| 20260101 | PCB variants |
-| 20260306 | Variant `in_bom` semantics corrected |
+| 20250222 | 図形のハッチングされた塗りつぶし |
+| 20250227 | ローカルパワーシンボル |
+| 20250318 | `~` は空のテキストを意味しなくなりました |
+| 20250425 | テーブルの UUID |
+| 20250513 | グループはデザインブロック `lib_id` を保持できます |
+| 20250610 | ルール領域は DNP およびその他のフラグをサポートします |
+| 20250827 | カスタムボディスタイル |
+| 20250829 | 角丸長方形 |
+| 20250901 | スタックピン表記 |
+| 20250922 | 回路図のバリエーション |
+| 20251012 | フラットな回路図階層のサポート |
+| 20251028 | プロパティの書式設定の更新: `do_not_autoplace`、`show_name` |
+| 20260101 | PCB のバリエーション |
+| 20260306 | バリアント `in_bom` セマンティクスが修正されました |
 
-### PCB / Footprint
+### PCB / フットプリント
 
-| Version | 変更 |
+| バージョン | 変化 |
 | ---: | --- |
-| 20250210 | Textbox knockout |
-| 20250222 | PCB shapes hatching |
-| 20250228 | IPC-4761 via protection features |
-| 20250302 | Zone hatching offsets |
-| 20250309 | Component class dynamic assignment rules |
-| 20250324 | Jumper pads |
-| 20250401 | Time domain length tuning |
-| 20250513 | Groups can carry design-block `lib_id` |
-| 20250801 | `(island)` changed to `(island yes/no)` |
-| 20250811 | Press-fit pad fabrication property |
-| 20250818 | Footprints support custom layer counts |
-| 20250829 | Rounded rectangles |
-| 20250901 | PCB points |
-| 20250907 | UUIDs for tables |
-| 20250909 | Footprint unit metadata: units / pins |
-| 20250914 | `PCB_BARCODE` objects |
-| 20250926 | Via types split into blind / buried / through |
-| 20251027 | Pad-to-die delays scaling fix |
-| 20251028 | Stopped writing netcodes; they are internal implementation details |
-| 20251101 | Backdrill and tertiary drill support |
-| 20260101 | PCB variants with per-footprint overrides |
-| 20260206 | Barcode and variant attribute serialization fixes |
+| 20250210 | テキストボックスノックアウト |
+| 20250222 | PCB 形状のハッチング |
+| 20250228 | 保護機能による IPC-4761 |
+| 20250302 | ゾーン ハッチング オフセット |
+| 20250309 | コンポーネントクラスの動的割り当てルール |
+| 20250324 | ジャンパーパッド |
+| 20250401 | 時間領域の長さの調整 |
+| 20250513 | グループはデザインブロック `lib_id` を保持できます |
+| 20250801 | `(island)` が `(island yes/no)` に変更されました |
+| 20250811 | プレスフィットパッドの加工特性 |
+| 20250818 | フットプリントはカスタムレイヤー数をサポートします |
+| 20250829 | 角丸長方形 |
+| 20250901 | PCB ポイント |
+| 20250907 | テーブルの UUID |
+| 20250909 | フットプリントユニットのメタデータ: ユニット/ピン |
+| 20250914 | `PCB_BARCODE` オブジェクト |
+| 20250926 | ビアの種類はブラインド / 埋め込み / スルーに分かれています |
+| 20251027 | パッドからダイまでの遅延スケーリングの修正 |
+| 20251028 | ネットコードを書くのをやめた。これらは内部実装の詳細です |
+| 20251101 | バックドリルおよび三次ドリルのサポート |
+| 20260101 | フットプリントごとのオーバーライドを備えた PCB バリアント |
+| 20260206 | バーコードおよびバリアント属性のシリアル化の修正 |
 
-### Worksheet
+### ワークシート
 
-No worksheet version bump; remains `20231118`.
+ワークシートのバージョンアップはありません。 `20231118` のままです。
 
-## 10.0 から現行開発版
+## 10.0から現在の開発まで
 
-KiCad 10 target file と比較すると、確認した現行 development branch には
-次の新しい format step が追加されています:
+KiCad 10 ターゲット ファイルと比較して、レビューされた現在の開発ブランチ
+次の新しいフォーマット手順を追加します。
 
-| Version | File type | Difference |
+| バージョン | ファイルの種類 | 違い |
 | ---: | --- | --- |
-| 20260410 | Board / footprint | Extruded 3D body metadata in footprint model blocks |
-| 20260508 | Board / footprint | Native PCB ellipse and ellipse-arc primitives |
-| 20260508 | Schematic / symbol | Native schematic/symbol ellipse and ellipse-arc primitives |
-| 20260511 | Board | Dielectric frequency-dependent stackup model fields |
-| 20260512 | Board | Net chain aggregation block |
-| 20260512 | Schematic | Net chain records |
-| 20260513 | Board | Copper thieving zone fill mode |
-| 20260521 | Board / footprint | Pad simulation electrical type, serialized as `sim_electrical_type` on pads |
-| 20260603 | Board / footprint | Table-cell `knockout` flag |
+| 20260410 | ボード/フットプリント | フットプリント モデル ブロック内の押し出された 3D ボディ メタデータ |
+| 20260508 | ボード/フットプリント | ネイティブ PCB 楕円および楕円弧プリミティブ |
+| 20260508 | 回路図・記号 | ネイティブの回路図/シンボルの楕円および楕円弧プリミティブ |
+| 20260511 | ボード | 誘電周波数に依存するスタックアップ モデル フィールド |
+| 20260512 | ボード | ネットチェーンアグリゲーションブロック |
+| 20260512 | 回路図 | ネットチェーンレコード |
+| 20260513 | ボード | 銅泥棒ゾーン充填モード |
+| 20260521 | ボード/フットプリント | パッド シミュレーションの電気的タイプ。パッド上で `sim_electrical_type` としてシリアル化されます。 |
+| 20260603 | ボード/フットプリント | 表セル `knockout` フラグ |
 
-## 現行開発版ファイルから見た backport 対象概要
+## 現在の開発ファイルからのバックポート ターゲットの概要
 
-Compared with older supported targets, 10.99 introduces or retains newer
-constructs that must be removed, simplified, or renamed when backporting:
+サポートされている古いターゲットと比較して、10.99 では新しいターゲットが導入または維持されています
+バックポート時に削除、簡素化、または名前変更する必要がある構成要素:
 
-| Target | Board / footprint target | Schematic target | Symbol target | Main downgrade areas from current development |
+| ターゲット | ボード/フットプリントのターゲット | 概略ターゲット | シンボルターゲット | 現在の開発からの主なダウングレード領域 |
 | --- | ---: | ---: | ---: | --- |
-| KiCad 10 | `20260206` | `20260306` | `20251024` | Remove development-only extruded body metadata, native ellipses, dielectric frequency fields, net chains, copper thieving, pad simulation electrical types, and table-cell knockout flags |
-| KiCad 9 | `20241229` | `20250114` | `20241209` | KiCad 10 items plus PCB shape hatching, via protection, zone hatch offsets, jumper pads, group design-block IDs, custom layer counts, rounded rectangles, PCB points, table UUIDs, barcodes, split via types, netcode omission, backdrill/post-machining, PCB variants, schematic variants/body styles/rounded rectangles/stacked pins/property formatting |
-| KiCad 8 | `20240108` | `20231120` | `20231120` | KiCad 9 items plus tables, embedded files, component classes, padstacks, via stacks, rule areas, tenting, user layer expansion, sheet attributes, multiple netclass assignments, netclass color highlighting |
-| KiCad 7 | `20221018` | `20230121` | `20220914` | KiCad 8 items plus PCB fields, DNP attribute propagation, modern teardrops, custom pad spoke templates, generators, UUID/id normalization, text boxes, images, net ties, font/field formatting, rule areas, modern schematic simulation/exclude flags |
+| KiCad10 | `20260206` | `20260306` | `20251024` | 開発専用の押し出しボディ メタデータ、ネイティブ楕円、誘電周波数フィールド、ネット チェーン、銅泥棒、パッド シミュレーションの電気的タイプ、およびテーブル セル ノックアウト フラグを削除します。 |
+| KiCad9 | `20241229` | `20250114` | `20241209` | KiCad 10 アイテムに加え、PCB 形状ハッチング、ビア保護、ゾーン ハッチ オフセット、ジャンパー パッド、グループ デザイン ブロック ID、カスタム レイヤー数、角丸長方形、PCB ポイント、テーブル UUID、バーコード、分割ビア タイプ、ネットコード省略、バックドリル/ポスト加工、PCB バリアント、回路図バリアント/ボディ スタイル/角丸長方形/スタック ピン/プロパティ フォーマット |
+| KiCad8 | `20240108` | `20231120` | `20231120` | KiCad 9 アイテムとテーブル、埋め込みファイル、コンポーネント クラス、パッドスタック、ビア スタック、ルール エリア、テント、ユーザー レイヤー拡張、シート属性、複数のネットクラス割り当て、ネットクラス カラー ハイライト |
+| KiCad7 | `20221018` | `20230121` | `20220914` | KiCad 8 項目と PCB フィールド、DNP 属性伝播、最新のティアドロップ、カスタム パッド スポーク テンプレート、ジェネレーター、UUID/ID 正規化、テキスト ボックス、画像、ネット タイ、フォント/フィールドの書式設定、ルール エリア、最新の回路図シミュレーション/除外フラグ |
 
-## C++ backport 実装カバレッジ
+## C++ バックポート実装の範囲
 
-`kicad-backport-cplus` CLI は version-driven な S-expression rewrite を実装しています。
-document kind ごとに release alias を解決し、downgrade rule を適用してから target の `version` field を書き込みます。
-特定の parser cutoff を試すために、生の numeric file format version も受け付けます。
+`kicad-backport-cplus` CLI は、バージョン駆動型の S 式書き換えを実装します。
+ドキュメントの種類ごとにリリース エイリアスを解決し、ダウングレード ルールを適用して、
+ターゲットの `version` フィールドを書き込みます。生の数値ファイル形式も受け入れます
+特定のパーサーカットオフをテストするためのバージョン。
 
-Supported alias mappings in code:
+コード内でサポートされているエイリアス マッピング:
 
-| Alias | Symbol | Schematic | Board | Footprint | Worksheet | Design rules |
+| エイリアス | シンボル | 回路図 | ボード | フットプリント | ワークシート | デザインルール |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `6.0` | `20211014` | `20211123` | `20211014` | `20211014` | `20210606` | `20200610` |
 | `7.0` | `20220914` | `20230121` | `20221018` | `20221018` | `20220228` | `20200610` |
@@ -412,240 +415,338 @@ Supported alias mappings in code:
 | `9.0` | `20241209` | `20250114` | `20241229` | `20241229` | `20231118` | `20200610` |
 | `10.0` | `20251024` | `20260306` | `20260206` | `20260206` | `20231118` | `20200610` |
 
-converter は古い file を upgrade しません。source file の numeric version が要求された target version より低い場合、
-file は変更せずにコピーし、report には source version を保持します。
+ソース ファイルに要求された数値バージョンがすでに正確に存在する場合、
+コンバーターはそれを変更せずにコピーします。ソースのバージョンがターゲットよりも低い場合、
+C++ 実装では、制限付きの互換性アップグレードが適用されるようになりました。
+要求された `version` フィールドを書き込みます:
 
-### 文書検出とプロジェクト処理
-
-C++ implementation は主に root S-expression head から KiCad document kind を検出します:
-
-| Root head | Kind |
+| 親切 | アップグレードの正規化を実装しました |
 | --- | --- |
-| `kicad_symbol_lib` | Symbol library |
-| `kicad_sch` | Schematic |
-| `kicad_pcb` | Board |
-| `footprint` | Footprint |
-| `kicad_dru` | Design rules |
-| `kicad_wks`, `drawing_sheet` | Worksheet |
+| シンボルライブラリ | 従来のフォント スタイルのアトムを最新のターゲット向けに拡張します。ピンの可視性アトムを拡張します。プロパティ `hide` を `effects` から移動します。従来のプロパティ ID を削除します。 |
+| 回路図 | `tstamp` の名前を `uuid` に変更します。 `netclass_flag` の名前を `directive_label` に変更します。古いテキストボックス `start/end` を `at/size` に変換します。従来のフォントとピン可視アトムを拡張します。プロパティ `hide` を `effects` から移動します。従来のプロパティ ID を削除します。 |
+| ボード/フットプリント | 最新のターゲットの場合は、`tstamp` の名前を `uuid` に変更します。フォントスタイルのアトムを展開します。フットプリント `dnp` アトムを拡張します。ブール値を KiCad 7 スタイルの `yes/no` に正規化します。廃止された `tedit` を削除します。オプションで、従来の数値ネット参照をネット名に変換します。 |
 
-root head がない、または未知の場合は、file extension に fallback します:
-`.kicad_sym`, `.kicad_sch`, `.kicad_pcb`, `.kicad_mod`, `.kicad_dru`,
-`.kicad_wks`。
+これは完全なセマンティック アップグレード エンジンではありません。構文を正規化するだけです
+コンバーターはすでに表現方法を知っています。
 
-When converting a project directory or `.kicad_pro`, it copies only editable
-KiCad project inputs and common local 3D model files. Generated outputs,
-history/backup folders, Gerbers, fabrication outputs, BOMs, and temporary files
-are skipped. For KiCad 7 and KiCad 8 board targets it also creates legacy
-`.kicad_prl` local board display settings so converted through-hole pads remain
-visible.
+### 実装されたリリースターゲットのカバレッジ
 
-### Symbol Library Rules
+C++ ルールはカットオフ主導型であるため、各リリースのエイリアスはそのルールをアクティブにします。
+カットオフは、そのファイル ファミリのターゲット バージョンよりも新しいです。以下のまとめ
+に、非 V6 安定ターゲットの実際の適用範囲を示します。
 
-汎用 parser gate は、target file format が introduction version より古い場合に
-これらの導入済み node を削除します:
+#### KiCad 10 ターゲット
 
-| Introduced | Removed heads | 理由 |
+KiCad 10 ターゲットでは、ほとんどの場合、10.0 以降/現在の開発構造が削除されます。
+
+| 親切 | 実装されたハンドリング |
+| --- | --- |
+| シンボルライブラリ | 10.0 シンボル ターゲットの後に導入されたネイティブの楕円および楕円弧プリミティブを削除します。 |
+| 回路図 | 10.0 以降の `locked` フィールド、ネイティブの楕円プリミティブ、および `net_chain` / `net_chains` を削除します。 |
+| ボード/フットプリント | 10.0 以降の型付き/押し出しモデル ブロック、ネイティブ楕円プリミティブ、誘電周波数スタックアップ フィールド、ネット チェーン、銅泥棒フィル モード、パッド `sim_electrical_type`、およびテーブルセル `knockout` を削除またはダウングレードします。 |
+| プロジェクトサイドファイル | V10 サフィックスに対しては、レガシー `.kicad_prl` やライブラリ テーブル互換性の書き換えは生成されません。 |
+
+#### KiCad 9 ターゲット
+
+KiCad 9 ターゲットは、KiCad 10 と現在の開発構文を維持しながら削除します。
+KiCad 9 ファイル バージョンで有効な機能:
+
+| 親切 | 実装されたハンドリング |
+| --- | --- |
+| シンボルライブラリ | ジャンパー ピン グループ、角丸長方形、ネイティブ楕円、シンボル `in_pos_files`、`duplicate_pin_numbers_are_jumpers`、`power` クラス フラグ、プロパティ `show_name` / `do_not_autoplace`、およびフォント `face` を削除します。 |
+| 回路図 | 角丸四角形、回路図バリアント、ネイティブ楕円、ネット チェーン、ポストターゲット `locked`、`embedded_fonts`、カスタム ボディ スタイル、シート アセンブリ/シミュレーション フラグ、シンボル `in_pos_files`、ジャンパー/電源クラス フラグ、フォント `face`、プロパティ書式設定フィールド、およびルート `group` ノードを削除します。 |
+| ボード/フットプリント | 保護、ジャンパー パッド フィールド、コンポーネント クラスの配置ソース、PCB ハッチ フィル、カスタム レイヤー数、角丸長方形、PCB ポイント オブジェクト、バーコード、バックドリル/加工後フィールド、PCB バリアント、現在開発中の機能、およびフォント `face` を介して IPC-4761 を削除またはダウングレードします。従来の数値ボード ネットコードを再構築します。このターゲット範囲では、テンティングはブール値のフロント/バック リストからレガシー アトムにダウングレードされます。 |
+| プロジェクトサイドファイル | V9 では従来の `.kicad_prl` 書き換えは生成されません。 |
+
+#### KiCad 8 ターゲット
+
+KiCad 8 ターゲットは KiCad 9/10/現在の​​構文を削除し、いくつかの構文も正規化します
+KiCad-8 後期の開発フォームは 8.0.0 ファイル バージョンに戻ります。
+
+| 親切 | 実装されたハンドリング |
+| --- | --- |
+| シンボルライブラリ | V9 以降の埋め込みファイル/プライベート フィールドと V10 以降のジャンパ、角丸長方形、および楕円の構文を削除します。 `embedded_fonts`、フォント `face`、シンボル/プロパティの書式設定フィールドを削除します。従来のプロパティ ID を追加し、プロパティの可視性を `effects` に移動します。フォント スタイルとピン可視性ブール値を古いアトム構文に変換します。 |
+| 回路図 | V9 以降のテーブル、ルール領域、埋め込みファイル/プライベート フィールド、および V10 以降の角丸四角形、バリアント、ボディ スタイル、楕円/ネット チェーン構文を削除します。テキストおよびシートのシミュレーション/アセンブリ フラグ、シンボル/プロパティの書式設定フィールド、フォント `face` を削除します。従来のプロパティ ID を追加し、プロパティの可視性を `effects` に移動します。フォントとピンの可視性ブール値を古いアトム構文に変換します。ルート `group` ノードを削除します。 |
+| ボード/フットプリント | V9+ テーブル、テント、埋め込みファイル/フォント、コンポーネント クラス、複雑なパッドスタック、ビア スタック、ルール領域、ビア保護、任意のユーザー レイヤ修飾子、カスタム レイヤ数、角丸長方形、PCB ポイント、バーコード、バックドリル/ポストマシニング、バリアント、および現在の開発機能を削除します。また、グラフィック/トラックソルダーマスクマージン/レイヤーフィールド、テーブルセル角度、テキストレンダリングキャッシュ、テキストボックス/テーブルセル/レイヤーノックアウト、モデル`hide`、フォント`face`を削除し、レガシー数値ネットコードを追加します。 `solder_paste_margin_ratio` は `solder_paste_ratio` に名前が変更されます。 |
+| プロジェクトサイドファイル | V8 ボード用の従来の数値 ID `.kicad_prl` 表示設定を生成します。 |
+
+#### KiCad 7 ターゲット
+
+KiCad 7 ターゲットは KiCad 8/9/10/現在の​​構文を削除し、追加のパーサーを適用します
+PCB フィールド、UUID、およびフットプリント データに関する互換性の書き換え:
+
+| 親切 | 実装されたハンドリング |
+| --- | --- |
+| シンボルライブラリ | V8+ `generator_version`、埋め込みフォント/ファイル、V9 プライベート フィールド、V10 ジャンパー/丸/楕円構文、シンボル `exclude_from_sim`、位置ファイルとプロパティの書式設定フィールド、ジャンパー/パワー クラス フラグ、およびフォント `face` を削除します。従来のプロパティ ID を追加します。プロパティの可視性を `effects` に移動します。フォントと可視性のブール値をアトム構文に変換します。 |
+| 回路図 | V8+ `generator_version` および `fields_autoplaced`、V9+ テーブル/ルール領域/埋め込み/プライベート フィールド、V10+ 丸め/バリアント/ボディ スタイル構文、ターゲット後のシミュレーション除外フィールド、シート アセンブリ/シミュレーション フラグ、シンボル/プロパティ書式設定フィールド、フォント `face`、およびルート `group` ノードを削除します。 UUID アトムは KiCad 6/7 パーサーでは引用符で囲まれず、プロパティの可視性/ID は従来の配置にダウングレードされます。 |
+| ボード/フットプリント | V8+ で生成されたオブジェクト、ティアドロップ、テーブル、埋め込みファイル/フォント、コンポーネント クラス、パッド/ビア スタック、ルール領域、ビア保護、および新しいターゲット構文を削除します。ユーザー層の型修飾子を `user` に変換します。グラフィック/トラック ソルダーマスク フィールド、テーブル アングル、レンダー キャッシュ、ノックアウト フラグ、モデル `hide`、グラフィック ネット接続、グループ ロック フィールド、レイヤー接続経由フィールド、フットプリント ジャンパー/ネットタイ/ユニット フィールド、フォント `face`、およびレガシー互換性のないフットプリント アトムを削除します。 PCB フットプリントのプロパティを `fp_text` に戻し、`uuid`/`id` の名前を `tstamp`/`id` のレガシー フォームに戻し、はんだペーストと熱フィールドの名前を変更し、ストロークをレガシー `width` に変換し、寸法を表示グラフィックスに変換し、ブール値/存在原子をダウングレードし、数値ネットコードを再構築します。 |
+| プロジェクトサイドファイル | V7 ボード用の従来の数値 ID `.kicad_prl` 表示設定を生成します。 |
+
+### ドキュメントの検出とプロジェクトの処理
+
+C++ 実装は、主にルートから KiCad ドキュメントの種類を検出します。
+S式ヘッド：
+
+| 根頭 | 親切 |
+| --- | --- |
+| `kicad_symbol_lib` | シンボルライブラリ |
+| `kicad_sch` | 回路図 |
+| `kicad_pcb` | ボード |
+| `footprint` | フットプリント |
+| `kicad_dru` | デザインルール |
+| `kicad_wks`、`drawing_sheet` | ワークシート |
+
+ルート ヘッドが見つからないか不明な場合は、ファイル拡張子に戻ります。
+`.kicad_sym`、`.kicad_sch`、`.kicad_pcb`、`.kicad_mod`、`.kicad_dru`、および
+`.kicad_wks`. Legacy `.sch`, `.lib`, `.dcm`, and `.pro` are also detected as
+従来の KiCad 種類は使用できますが、これらの従来のファイル ファミリからの直接変換はできません。
+現在のフェーズで実装されています。
+
+プロジェクト ディレクトリまたは `.kicad_pro` を変換する場合、編集可能なもののみがコピーされます
+KiCad プロジェクト入力と共通のローカル 3D モデル ファイル。生成された出力、
+履歴/バックアップ フォルダー、ガーバー、製造出力、BOM、および一時ファイル
+スキップされます。 KiCad 6、7、および 8 ボード ターゲットの場合、レガシーも作成されます。
+`.kicad_prl` ローカル ボード表示設定 (数値 `visible_items`、完全)
+`visible_layers` と古いローカル設定メタ バージョンにより、オブジェクトが変換されました
+古い GUI では引き続き表示されます。 KiCad 6 プロジェクトのターゲットの場合はさらに
+最上位の `version` ノードを `sym-lib-table` / `fp-lib-table` から削除し、
+ルートレベルのスケマティック階層インスタンス テーブルを子シート全体に再構築します。
+
+### シンボルライブラリのルール
+
+汎用パーサー ゲートは、ターゲット ファイル形式が変更された場合に、これらの導入されたノードを削除します。
+導入バージョンよりも古いです:
+
+| 紹介された | 取り外したヘッド | 理由 |
 | ---: | --- | --- |
-| 20220126 | `text_box`, `textbox` | Symbol text boxes |
-| 20240529 | `embedded_files`, `embedded_file` | Embedded files |
-| 20241209 | `private` | Private SCH_FIELD flags |
-| 20250324 | `pin_group`, `pin_groups` | Jumper pin groups |
-| 20250829 | `rounded_rectangle`, `roundrect` | Rounded rectangles |
-| 20260508 | `ellipse`, `ellipse_arc` | Native ellipse primitives |
+| 20220126 | `text_box`、`textbox` | シンボルのテキストボックス |
+| 20240529 | `embedded_files`、`embedded_file` | 埋め込みファイル |
+| 20241209 | `private` | プライベート SCH_FIELD フラグ |
+| 20250324 | `pin_group`、`pin_groups` | ジャンパピングループ |
+| 20250829 | `rounded_rectangle`、`roundrect` | 角丸長方形 |
+| 20260508 | `ellipse`、`ellipse_arc` | ネイティブの楕円プリミティブ |
 
-互換性 rewrite:
+互換性の書き換え:
 
-| Target cutoff | Rewrite |
+| ターゲットカットオフ | リライト |
 | ---: | --- |
-| `< 20231120` | Remove root `generator_version` fields |
-| `< 20241209` | Remove `embedded_fonts`; add legacy property IDs; move property `hide` flags into `effects` |
-| `< 20240108` | Convert font `(bold yes/no)` and `(italic yes/no)` lists to legacy presence atoms |
-| `<= 20241209` | Remove font `face` fields |
-| `< 20241004` | Convert boolean `hide` lists to legacy atoms; flatten `pin_names` / `pin_numbers` hide lists |
-| `< 20251024` | Remove symbol `in_pos_files`; remove property `show_name` and `do_not_autoplace` |
-| `< 20250324` | Remove `duplicate_pin_numbers_are_jumpers` |
-| `< 20250227` | Remove symbol `power` class flags |
+| `< 20231120` | ルート `generator_version` フィールドを削除します |
+| `< 20241209` | `embedded_fonts` を削除します。従来のプロパティ ID を追加します。プロパティ `hide` フラグを `effects` に移動します |
+| `< 20230409` | シンボル ライブラリ `symbol/exclude_from_sim` シミュレーション除外フラグを削除します |
+| `< 20240108` | フォント `(bold yes/no)` および `(italic yes/no)` リストをレガシー プレゼンス アトムに変換する |
+| `<= 20241209` | フォント `face` フィールドを削除します |
+| `< 20241004` | ブール値 `hide` リストをレガシー アトムに変換します。 `pin_names` / `pin_numbers` をフラット化してリストを非表示にする |
+| `<= 20211014` | KiCad 6 標準プロパティ ID を追加: `Reference=0`、`Value=1`、`Footprint=2`、`Datasheet=3`、`ki_keywords=4`、`ki_description=5`、`ki_fp_filters=6` |
+| `< 20251024` | シンボル `in_pos_files` を削除します。プロパティ `show_name` および `do_not_autoplace` を削除します |
+| `< 20250324` | `duplicate_pin_numbers_are_jumpers` を削除します |
+| `< 20250227` | シンボル `power` クラス フラグを削除します |
 
-### Schematic Rules
+### 回路図ルール
 
-汎用 parser gate:
+一般的なパーサー ゲート:
 
-| Introduced | Removed heads | 理由 |
+| 紹介された | 取り外したヘッド | 理由 |
 | ---: | --- | --- |
-| 20220126 | `text_box`, `textbox` | Schematic text boxes |
-| 20220622 | `simulation_model`, `sim_model` | New simulation model format |
-| 20240101 | `table` | Schematic tables |
-| 20240417 | `rule_area` | Schematic rule areas |
-| 20240620 | `embedded_files`, `embedded_file` | Embedded files |
-| 20241209 | `private` | Private SCH_FIELD flags |
-| 20250829 | `rounded_rectangle`, `roundrect` | Rounded rectangles |
-| 20250922 | `variants`, `variant` | Schematic variants |
-| 20260508 | `ellipse`, `ellipse_arc` | Native ellipse primitives |
-| 20260512 | `net_chain`, `net_chains` | Schematic net chains |
+| 20220126 | `text_box`、`textbox` | 回路図テキストボックス |
+| 20220622 | `simulation_model`、`sim_model` | 新しいシミュレーション モデル形式 |
+| 20240101 | `table` | 回路図テーブル |
+| 20240417 | `rule_area` | スケマティックルールエリア |
+| 20240620 | `embedded_files`、`embedded_file` | 埋め込みファイル |
+| 20241209 | `private` | プライベート SCH_FIELD フラグ |
+| 20250829 | `rounded_rectangle`、`roundrect` | 角丸長方形 |
+| 20250922 | `variants`、`variant` | 回路図のバリエーション |
+| 20260508 | `ellipse`、`ellipse_arc` | ネイティブの楕円プリミティブ |
+| 20260512 | `net_chain`、`net_chains` | 回路図のネットチェーン |
 
-互換性 rewrite:
+互換性の書き換え:
 
-| Target cutoff | Rewrite |
+| ターゲットカットオフ | リライト |
 | ---: | --- |
-| `< 20231120` | Remove `generator_version`; remove `fields_autoplaced` from symbols and sheets |
-| `< 20260326` | Remove schematic `locked` fields introduced after the target |
-| `< 20260306` | Remove `embedded_fonts`; remove sheet `exclude_from_sim`, `in_bom`, `on_board`, `dnp`; remove root schematic `group` nodes |
-| `< 20250827` | Remove `body_styles` and `body_style` |
-| `< 20250114` | Remove text/textbox `exclude_from_sim` |
-| `<= 20230121` | Remove all remaining `exclude_from_sim` |
-| `< 20251024` | Remove symbol `in_pos_files` |
-| `< 20250324` | Remove `duplicate_pin_numbers_are_jumpers` |
-| `< 20250227` | Remove symbol `power` class flags |
-| `< 20241004` | Convert boolean `hide` lists to legacy atoms; flatten pin visibility hide lists |
-| `< 20240108` | Convert font bold/italic boolean lists to legacy atoms |
-| `<= 20250114` | Remove font `face` fields |
-| `< 20241209` | Add legacy property IDs; move property `hide` flags into `effects` |
-| `< 20251028` | Remove property `show_name` and `do_not_autoplace` |
+| `< 20231120` | `generator_version` を削除します。シンボルとシートから `fields_autoplaced` を削除します |
+| `< 20260326` | ターゲットの後に導入された回路図 `locked` フィールドを削除します |
+| `< 20260306` | `embedded_fonts` を削除します。シート `exclude_from_sim`、`in_bom`、`on_board`、`dnp` を削除します。ルート回路図 `group` ノードを削除します |
+| `< 20250827` | `body_styles` と `body_style` を削除します |
+| `< 20250114` | テキスト/テキストボックス `exclude_from_sim` を削除します |
+| `<= 20230121` | 残りの `exclude_from_sim` をすべて削除します |
+| `< 20220822` | テキスト、ラベル、ディレクティブラベル `hyperlink` フィールドを削除します |
+| `< 20220914` | 配置されたシンボル `dnp` フラグを削除します |
+| `< 20220124` | ルート `directive_label` ノードの名前を `netclass_flag` に戻します |
+| `< 20251024` | シンボル `in_pos_files` を削除 |
+| `< 20250324` | `duplicate_pin_numbers_are_jumpers` を削除します |
+| `< 20250227` | シンボル `power` クラス フラグを削除します |
+| `< 20241004` | ブール値 `hide` リストをレガシー アトムに変換します。ピンの可視性を平坦化する リストを非表示にする |
+| `<= 20211123` | ライブラリシンボル `pin/alternate` 定義を削除します |
+| `< 20240108` | フォントの太字/斜体のブールリストをレガシーアトムに変換 |
+| `<= 20250114` | フォント `face` フィールドを削除します |
+| `<= 20230121` | KiCad 6/7 パーサーの `uuid` アトムの引用符を外す |
+| `<= 20211123` | ソース ルート回路図にすでにインスタンス データがある場合、KiCad 6 のルートレベル `sheet_instances` および `symbol_instances` を生成します。子シートにはルート インスタンス テーブルが与えられません |
+| `<= 20211123` | KiCad 6 の標準回路図プロパティ ID を追加し、シート プロパティ名/ID を `Sheet name=0` および `Sheet file=1` に正規化します。 |
+| `<= 20211123` | KiCad 6 ルート インスタンス テーブルの生成後にシンボル内部 `instances` ブロックを削除します |
+| `< 20241209` | 従来のプロパティ ID を追加します。プロパティ `hide` フラグを `effects` に移動します |
+| `< 20251028` | プロパティ `show_name` および `do_not_autoplace` を削除します |
 
-### Board and Footprint Rules
+### ボードとフットプリントのルール
 
-汎用 parser gate:
+一般的なパーサー ゲート:
 
-| Introduced | Removed heads | 理由 |
+| 紹介された | 取り外したヘッド | 理由 |
 | ---: | --- | --- |
-| 20220131 | `gr_text_box`, `fp_text_box`, `text_box`, `textbox` | PCB textboxes |
-| 20220621 | `image` | PCB image objects |
-| 20220818 | `net_tie`, `net_ties` | First-class net-tie storage |
-| 20231007 | `generated` | Generative objects |
-| 20240108 | `teardrop`, `teardrops` | Teardrop parameters |
-| 20240202 | `table` | PCB tables |
-| 20240609 | `tenting` | Tenting keyword |
-| 20240706 | `embedded_files`, `embedded_file`, `embedded_fonts` | Embedded files |
-| 20240928 | `component_class`, `component_classes` | Component classes |
-| 20240929 | `padstack` | Complex padstacks |
-| 20241006 | `via_stack`, `viastack` | Via stacks |
-| 20241009 | `rule_area` | Placement/rule areas |
-| 20250228 | `via_protection`, `covering`, `plugging`, `filling`, `capping` | IPC-4761 via protection |
-| 20250818 | `custom_layer_count`, `custom_layer_counts` | Custom footprint layer counts |
-| 20250829 | `rounded_rectangle`, `roundrect` | Rounded rectangles |
-| 20250901 | `point` | PCB point objects |
-| 20250914 | `barcode`, `pcb_barcode`, `gr_barcode`, `fp_barcode` | PCB barcode objects |
-| 20251101 | `backdrill`, `tertiary_drill`, `front_post_machining`, `back_post_machining` | Backdrill and tertiary drill fields |
-| 20260101 | `variants`, `variant` | PCB variants |
-| 20260410 | `extruded` | Extruded footprint 3D body models |
-| 20260508 | `gr_ellipse`, `gr_ellipse_arc`, `fp_ellipse`, `fp_ellipse_arc` | Native PCB ellipse primitives |
-| 20260511 | `spec_frequency`, `dielectric_model` | Dielectric frequency-dependent stackup fields |
-| 20260512 | `net_chains`, `net_chain` | PCB net chains |
-| 20260513 | `thieving` | Copper thieving zone fill mode |
+| 20220131 | `gr_text_box`、`fp_text_box`、`text_box`、`textbox` | PCB テキストボックス |
+| 20220621 | `image` | PCB イメージ オブジェクト |
+| 20220818 | `net_tie`、`net_ties` | ファーストクラスのネットタイストレージ |
+| 20231007 | `generated` | 生成オブジェクト |
+| 20240108 | `teardrop`、`teardrops` | ティアドロップパラメータ |
+| 20240202 | `table` | PCBテーブル |
+| 20240609 | `tenting` | テントキーワード |
+| 20240706 | `embedded_files`、`embedded_file`、`embedded_fonts` | 埋め込みファイル |
+| 20240928 | `component_class`、`component_classes` | コンポーネントクラス |
+| 20240929 | `padstack` | 複雑なパッドスタック |
+| 20241006 | `via_stack`、`viastack` | スタック経由 |
+| 20241009 | `rule_area` | 配置/罫線領域 |
+| 20250228 | `via_protection`、`covering`、`plugging`、`filling`、`capping` | IPC-4761保護経由 |
+| 20250818 | `custom_layer_count`、`custom_layer_counts` | カスタム フットプリント レイヤー数 |
+| 20250829 | `rounded_rectangle`、`roundrect` | 角丸長方形 |
+| 20250901 | `point` | PCB ポイント オブジェクト |
+| 20250914 | `barcode`、`pcb_barcode`、`gr_barcode`、`fp_barcode` | PCB バーコード オブジェクト |
+| 20251101 | `backdrill`、`tertiary_drill`、`front_post_machining`、`back_post_machining` | バックドリルおよび三次ドリルフィールド |
+| 20260101 | `variants`、`variant` | PCB のバリエーション |
+| 20260410 | `extruded` | 押し出しフットプリント 3D ボディモデル |
+| 20260508 | `gr_ellipse`、`gr_ellipse_arc`、`fp_ellipse`、`fp_ellipse_arc` | ネイティブ PCB 楕円プリミティブ |
+| 20260511 | `spec_frequency`、`dielectric_model` | 誘電周波数に依存するスタックアップフィールド |
+| 20260512 | `net_chains`、`net_chain` | PCBネットチェーン |
+| 20260513 | `thieving` | 銅泥棒ゾーン充填モード |
 
-Current development coverage gaps found in local KiCad `10.99.0-1273-gd90e32b6a0`:
+ローカル KiCad `10.99.0-1273-gd90e32b6a0` からの現在の開発範囲のメモ:
 
-| Introduced | 不足している downgrade handling | 注記 |
+| 紹介された | 取り扱い | 注意事項 |
 | ---: | --- | --- |
-| 20260521 | Pad `sim_electrical_type` | Serialized as `(sim_electrical_type source)` or `(sim_electrical_type sink)` on pads; not yet present in `kicad-backport-cplus` feature gates. |
-| 20260603 | Table-cell `knockout` flag | Must be handled contextually for PCB table cells; `knockout` is not safe as a global token gate because other object types also use it. |
+| 20260521 | 実装済み | `20260521` より古いターゲットでは、パッドの子 `sim_electrical_type` が削除されます。 |
+| 20260603 | 実装済み | テーブルセルの子 `knockout` は、`20260603` よりも古いターゲットのコンテキストに応じて削除されます。 `knockout` は、他のオブジェクト タイプでも使用されるため、グローバル トークン ゲートとしては使用されません。 |
 
-互換性 rewrite:
+互換性の書き換え:
 
-| Target cutoff | Rewrite |
+| ターゲットカットオフ | リライト |
 | ---: | --- |
-| `< 20260410` | Remove typed/extruded 3D model blocks by removing `model` nodes that contain `type` |
-| `< 20260513` | Replace copper thieving zone fill mode with polygon fill |
-| `>= 20220225` | Remove obsolete footprint `tedit` fields |
-| `>= 20200628` | Remove obsolete board `visible_elements` settings |
-| `< 20240703` | Convert user-layer type qualifiers `front`, `back`, `auxiliary` to `user` |
-| `< 20241010` | Remove graphic `solder_mask_margin` fields |
-| `< 20241030` | Convert dimension boolean fields to legacy atoms; remove dimension `arrow_direction` |
-| `< 20241009` | Remove zone `placement` fields |
-| `< 20241007` | Remove track `solder_mask_margin` and `solder_mask_layer` fields |
-| `< 20240617` | Remove PCB table cell `angle` |
-| `< 20250228` | Convert tenting front/back boolean lists to legacy atoms; remove IPC-4761 protection fields |
-| `< 20231212` | Convert `locked` and `hide` boolean lists to presence atoms; remove `unlocked`; remove model `hide` |
-| `< 20231014` | Remove `generator_version` |
-| `< 20230924` | Convert `pcbplotparams` `yes/no` booleans to `true/false`; convert shape fill `no` to `none` |
-| `< 20230730` | Remove graphic shape `net` connectivity |
-| `< 20240108` | Remove group `locked`; convert font bold/italic boolean lists to legacy atoms |
-| `< 20230620` | Convert footprint `Reference` and `Value` properties back to `fp_text`; convert `Description` to `ki_description`; map `sheetname`/`sheetfile` to properties |
-| `< 20231231` | Rename scoped `uuid` fields back to `tstamp`; rename group/generated `uuid` back to `id` |
-| `< 20250324` | Remove footprint jumper pad fields |
-| `<= 20221018` | Remove footprint `dnp` attributes; remove pad/via `remove_unused_layers`; convert dimensions to visible text annotations; remove legacy-incompatible `locked`; downgrade free via fields |
-| `< 20250309` | Remove `component_class` from placement rules |
-| `< 20250222` | Convert PCB hatch/reverse-hatch/cross-hatch shape fills to solid fill |
-| `< 20250210` | Remove PCB text box `knockout`; add `filled_areas_thickness no` to cached zone fills where needed |
-| `<= 20241229` | Remove PCB font `face` fields |
-| `< 20251101` | Remove pad/via post-machining fields |
-| `< 20251028` | Rebuild legacy numeric board netcodes and root-level net declarations |
+| `< 20260410` | `type` を含む `model` ノードを削除して、型指定/押し出し 3D モデル ブロックを削除します。 |
+| `< 20260513` | 銅泥棒ゾーンの塗りつぶしモードをポリゴン塗りつぶしに置き換える |
+| `>= 20220225` | 廃止されたフットプリント `tedit` フィールドを削除します |
+| `>= 20200628` | 古いボードの `visible_elements` 設定を削除します |
+| `< 20260603` | PCB テーブルセルの `knockout` フィールドを削除します |
+| `< 20240703` | ユーザー層の型修飾子 `front`、`back`、`auxiliary` を `user` に変換します |
+| `< 20241010` | グラフィック `solder_mask_margin` フィールドを削除する |
+| `< 20241030` | ディメンションのブールフィールドを従来のアトムに変換します。ディメンション `arrow_direction` を削除します |
+| `< 20250210` | PCB テキスト `render_cache` を削除します。テキストボックス `knockout` を削除します。 `knockout` 原子を層リストから削除します。必要に応じて、キャッシュされたゾーンフィルに `filled_areas_thickness no` を追加します |
+| `< 20241009` | ゾーン `placement` フィールドを削除します |
+| `<= 20221018` | ゾーン `attr` を削除します。パッド/ゾーン `thermal_bridge_angle` を削除します。パッド/ゾーンの名前を `thermal_bridge_width` からレガシー `thermal_width` に変更します |
+| `< 20240108` | `setup/allow_soldermask_bridges_in_footprints` を削除します。グループ `locked` を削除します。 `keep_end_layers`、`start_end_only`、`zone_layer_connections` などのレイヤー接続フィールドを介して削除します |
+| `< 20241007` | トラックの `solder_mask_margin` フィールドと `solder_mask_layer` フィールドを削除します |
+| `< 20240617` | PCB テーブルのセル `angle` を削除します |
+| `< 20260521` | パッド `sim_electrical_type` を削除します |
+| `< 20250228` | テンティングのフロント/バックブールリストをレガシーアトムに変換します。 IPC-4761 保護フィールドを削除する |
+| `< 20231212` | `locked` および `hide` ブール値リストをプレゼンス アトムに変換します。 `unlocked` を削除します。モデル `hide` を削除 |
+| `< 20231014` | `generator_version` を削除します |
+| `< 20230924` | `pcbplotparams` `yes/no` ブール値を `true/false` に変換します。形状塗りつぶし `no` を `none` に変換します |
+| `< 20230730` | グラフィック形状 `net` 接続を削除します |
+| `< 20240108` | フォントの太字/斜体のブールリストをレガシーアトムに変換 |
+| `< 20230620` | フットプリントの `Reference` プロパティと `Value` プロパティを `fp_text` に変換します。 `Description` を `ki_description` に変換します。 `sheetname`/`sheetfile` をプロパティにマップする |
+| `< 20231231` | スコープ付き `uuid` フィールドの名前を `tstamp` に戻します。グループ/生成された `uuid` の名前を `id` に戻します |
+| `< 20250324` | フットプリント ジャンパ パッド フィールドを削除します: `duplicate_pad_numbers_are_jumpers` および `jumper_pad_groups` |
+| `<= 20221018` | フットプリント `dnp` 属性、`net_tie_pad_groups`、`units`、および `allow_missing_courtyard` を削除します。パッド/via `remove_unused_layers` を削除します。寸法を表示可能なグラフィックスに変換します。レガシー互換性のない `locked` を削除します。フィールド経由で無料でダウングレードします。 PCB グラフィックの `stroke` ブロックを従来の `width` フィールドに変換します |
+| `< 20250309` | `component_class` を配置ルールから削除します |
+| `< 20250222` | PCB ハッチング/リバースハッチング/クロスハッチング形状の塗りつぶしをソリッド塗りつぶしに変換します。 |
+| `<= 20241229` | PCB フォント `face` フィールドを削除 |
+| `< 20251101` | パッド/ビアの加工後フィールドを削除します |
+| `< 20251028` | 従来の数値ボード ネットコードとルートレベルのネット宣言を再構築する |
 
-### Worksheet と design rules
+プロジェクトレベルのテストで確認された KiCad 6 パーサー固有の修正:
 
-Worksheet 処理では現在 1 つの parser gate が実装されています:
+| エリア | 実装された修正 |
+| --- | --- |
+| PCBセットアップ | 8 より前のボード ターゲットの `setup/allow_soldermask_bridges_in_footprints` を削除します。 |
+| PCB フットプリント | KiCad 6/7 ボード ターゲットの `net_tie_pad_groups`、`units`、ジャンパー パッド グループ、および `allow_missing_courtyard` 属性アトムを削除します。 |
+| PCB ゾーンとパッド | KiCad 6/7 ボード ターゲットのゾーン `attr` を削除し、`thermal_bridge_angle` を削除し、`thermal_bridge_width` を `thermal_width` に名前変更します。 |
+| PCB テキストと表 | 古いパーサーが拒否するテキスト `render_cache`、テキストボックス `knockout`、テーブルセル `knockout`、レイヤーリスト `knockout` を削除します。 |
+| シンボルライブラリ | `20230409` より古いターゲットのシンボル `exclude_from_sim` を削除し、KiCad 6 標準プロパティ ID を追加します。 |
+| 回路図 | ピン `alternate` を削除し、KiCad 6 ルート インスタンス テーブルを生成し、ルートシート インスタンス パスを正規化し、シート プロパティ名/ID を正規化し、シンボル内部 `instances` を削除します。配置されたシンボル ピン UUID ブロックは、KiCad 6 がインスタンスの関連付けに使用するため、意図的に保持されます。 |
+| プロジェクトサイドファイル | V6/V7/V8 の数値 ID `.kicad_prl` 表示設定を生成し、V6 のライブラリ テーブルのトップレベル `version` ノードを削除します。 |
 
-| Target cutoff | Rewrite |
+### ワークシートとデザインルール
+
+ワークシート処理には現在、次の 1 つのパーサー ゲートが実装されています。
+
+| ターゲットカットオフ | リライト |
 | ---: | --- |
-| `< 20220228` | Remove worksheet `font` blocks |
+| `< 20220228` | ワークシートの `font` ブロックを削除します |
 
-Design rules は検出され、target version alias も持ちますが、downgrade rewrite は
-現在実装されていません。理由は、追跡対象の KiCad versions 全体で file format version macro が
-`20200610` のままだからです。
+デザインルールは検出され、ターゲットバージョンのエイリアスが含まれていますが、ダウングレードはありません
+ファイル形式バージョン マクロが残っているため、現在は書き換えが実装されています。
+追跡されている KiCad バージョン全体で `20200610`。
 
-### 警告とレポートの意味
+### 警告とレポートのセマンティクス
 
-tree を変更する実装済みの removal または compatibility rewrite は、必ず
-warning を追加します。汎用 feature gate は removed nodes の数と
-introduction version を報告します。reports には path、detected kind、source version、
-target version、changed flag、warnings が含まれます。
+ツリーを変更する削除または互換性の書き換えが実装されるたびに、
+警告。汎用機能ゲートは、削除されたノードの数と、
+入門バージョン。レポートには、パス、検出された種類、ソースのバージョン、
+ターゲット バージョン、変更されたフラグ、および警告。
 
-## コンバーター要件
+## コンバータの要件
 
-### 読み込みパス
+### 読み取りパス
 
-- source file の `version` を保持し、current KiCad format としてだけ解釈しない。
-- 古い file 向けの compatibility alias をサポートする:
-  - `page` to `paper`
-  - Legacy overbar `~...~` to `~{...}`
-  - Old `start/end` text box format to new `at/size`
-  - Old `id` to `uuid`
-  - Old boolean / presence-token formats to explicit booleans
-- future format を検出し、明確な error または定義済み downgrade strategy を返す。
+- ソース ファイル `version` を保存します。現在のものだけを解釈しないでください
+KiCad 形式。
+- 古いファイルの互換性エイリアスのサポート:
+  - `page` ～ `paper`
+  - 従来のオーバーバー `~...~` から `~{...}`
+  - 古い `start/end` テキスト ボックス形式から新しい `at/size` へ
+  - 古い `id` から `uuid`
+  - 古いブール値/プレゼンス トークン形式から明示的なブール値へ
+- 将来の形式を検出し、明確なエラーまたは定義されたダウングレード戦略を返します。
 
 ### 書き込みパス
 
-- `--target-version` must do more than change the top-level version number. It
-  must prune or rewrite semantics according to the requested target.
-- Each target version needs feature gates:
-  - KiCad 6 must not write V7 simulation model fields, DNP, or post-V6 text box
-    structures.
-  - KiCad 7 must not write structures that only became stable after V8
-    `generator_version` cleanup.
-  - KiCad 8 must not write V9 embedded files, component classes, or complex
-    padstacks.
-  - KiCad 9 must not write V10 variants, barcode, backdrill, split via type, and
-    similar constructs.
-  - KiCad 10 must not write current-development extruded body metadata, native
-    ellipses, dielectric frequency fields, net chains, copper thieving, pad
-    simulation electrical types, or table-cell knockout flags.
-- lossy downgrade では silent deletion ではなく、warning または sidecar metadata を生成する。
+- `--target-version` は、トップレベルのバージョン番号を変更する以上のことを行う必要があります。それ
+要求されたターゲットに従ってセマンティクスをプルーニングまたは書き換える必要があります。
+- 各ターゲット バージョンには機能ゲートが必要です。
+  - KiCad 6 は、V7 シミュレーション モデル フィールド、DNP、または V6 以降のテキスト ボックスを書き込んではなりません
+構造物。
+  - KiCad 7 は、V8 以降でのみ安定した構造を書き込んではなりません
+`generator_version` のクリーンアップ。
+  - KiCad 8 は、V9 埋め込みファイル、コンポーネント クラス、または複合ファイルを書き込んではなりません
+パッドスタック。
+  - KiCad 9 は、V10 バリアント、バーコード、バックドリル、タイプ経由の分割、および
+同様の構造。
+  - KiCad 10 は、現在開発中の押し出されたボディのメタデータ、ネイティブを書き込んではなりません
+楕円、誘電周波数フィールド、ネットチェーン、銅泥棒、パッド
+シミュレーションの電気的タイプ、またはテーブルセルのノックアウトフラグ。
+- 非可逆ダウングレードでは、サイレントではなく、警告またはサイドカー メタデータが生成される必要があります。
+削除。
 
 ### テストパス
 
-- Build minimal fixtures for KiCad 6, 7, 8, 9, and 10:
-  - Symbol library
-  - Schematic
-  - Board
-  - Footprint
-  - Worksheet
-  - Design rules
-- Each cross-version conversion should verify:
-  - Source version is read correctly
-  - Target version number is written correctly
-  - Disallowed tokens are removed or downgraded
-  - Key semantics are preserved
-  - Warnings cover lossy conversions
+- KiCad 6、7、8、9、10 用の最小限のフィクスチャを構築します。
+  - シンボルライブラリ
+  - 回路図
+  - ボード
+  - フットプリント
+  - ワークシート
+  - デザインルール
+- バージョン間の変換ごとに、以下を確認する必要があります。
+  - ソースバージョンは正しく読み取られます
+  - ターゲットのバージョン番号が正しく書かれている
+  - 許可されていないトークンは削除またはダウングレードされます
+  - 主要なセマンティクスは保持されます
+  - 損失を伴う変換に関する警告
 
 ## メンテナンスノート
 
-将来のバージョン差分を追加するとき:
+将来のバージョンの違いを追加する場合:
 
-1. Add or update the version matrix first.
-2. Add a new interval section such as `10.0 to 11.0` or
+1. 最初にバージョン マトリックスを追加または更新します。
+2. `10.0 to 11.0` などの新しい間隔セクションを追加するか、
    `10.99 / current to 11.99 / current`.
-3. Keep development-branch findings separate from released stable tags until the
-   corresponding KiCad release is tagged.
-4. Update the backport target summary when a new source version introduces
-   constructs that affect existing downgrade targets.
-5. Track `.kicad_pro` JSON schema migrations in a separate document.
+3. 開発ブランチの結果は、リリースされる安定したタグとは別に保管してください。
+対応する KiCad リリースがタグ付けされています。
+4. 新しいソース バージョンが導入されたときにバックポート ターゲットの概要を更新する
+既存のダウングレード ターゲットに影響を与える構造。
+5. `.kicad_pro` JSON スキーマの移行を別のドキュメントで追跡します。

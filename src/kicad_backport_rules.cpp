@@ -114,6 +114,14 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         applyWhen( aTarget < 20241209, [&]() { return removeDescendantsByHead( aDocument.Root.get(), { "embedded_fonts" } ); },
                    "removed symbol library embedded_fonts fields" );
 
+        applyWhen( aTarget < 20230409,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(), { "symbol" },
+                                               { "exclude_from_sim" } );
+                   },
+                   "removed symbol library simulation exclusion flags" );
+
         applyWhen( aTarget < 20240108, [&]() { return downgradeFontStyleListsToAtoms( aDocument.Root.get() ); },
                    "downgraded symbol library font bold/italic bool fields" );
 
@@ -141,6 +149,12 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         {
             int n = ensureLegacyPropertyIds( aDocument.Root.get() );
             warnIfChanged( n, "added legacy symbol property ids" );
+
+            if( aTarget <= 20211014 )
+            {
+                n = ensureKiCad6StandardPropertyIds( aDocument.Root.get() );
+                warnIfChanged( n, "added KiCad 6 standard symbol property ids" );
+            }
 
             n = movePropertyHideToEffects( aDocument.Root.get() );
             warnIfChanged( n, "moved symbol property hide flags to effects" );
@@ -209,6 +223,33 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         applyWhen( aTarget <= 20230121, [&]() { return removeDescendantsByHead( aDocument.Root.get(), { "exclude_from_sim" } ); },
                    "removed schematic simulation exclusion flags" );
 
+        applyWhen( aTarget < 20220822,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(),
+                                               { "text", "text_box", "textbox", "label",
+                                                 "global_label", "hierarchical_label",
+                                                 "directive_label", "netclass_flag" },
+                                               { "hyperlink" } );
+                   },
+                   "removed schematic text hyperlink fields" );
+
+        applyWhen( aTarget < 20220914,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(), { "symbol" },
+                                               { "dnp" } );
+                   },
+                   "removed schematic DNP flags" );
+
+        applyWhen( aTarget < 20220124,
+                   [&]()
+                   {
+                       return renameChildHeadInParents( aDocument.Root.get(), { "kicad_sch" },
+                                                        "directive_label", "netclass_flag" );
+                   },
+                   "renamed schematic directive labels to legacy netclass flags" );
+
         applyWhen( aTarget < 20251024,
                    [&]()
                    {
@@ -240,6 +281,14 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
             warnIfChanged( n, "downgraded schematic symbol pin visibility fields" );
         }
 
+        applyWhen( aTarget <= 20211123,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(), { "pin" },
+                                               { "alternate" } );
+                   },
+                   "removed schematic pin alternate-function fields" );
+
         applyWhen( aTarget < 20240108, [&]() { return downgradeFontStyleListsToAtoms( aDocument.Root.get() ); },
                    "downgraded schematic font bold/italic bool fields" );
 
@@ -249,6 +298,41 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                        return removeChildrenFromParents( aDocument.Root.get(), { "font" }, { "face" } );
                    },
                    "removed schematic font face fields" );
+
+        applyWhen( aTarget <= 20230121,
+                   [&]()
+                   {
+                       return unquoteAtomsInHeadedLists( aDocument.Root.get(), { "uuid" }, 1 );
+                   },
+                   "normalized schematic UUID atoms for KiCad 6/7 parsers" );
+
+        applyWhen( aTarget <= 20211123,
+                   [&]()
+                   {
+                       return ensureLegacySchematicSymbolInstances( aDocument.Root.get() );
+                   },
+                   "generated schematic symbol instance table for KiCad 6 parsers" );
+
+        applyWhen( aTarget <= 20211123,
+                   [&]()
+                   {
+                       return ensureKiCad6StandardPropertyIds( aDocument.Root.get() );
+                   },
+                   "added KiCad 6 standard schematic property ids" );
+
+        applyWhen( aTarget <= 20211123,
+                   [&]()
+                   {
+                       return normalizeKiCad6SheetProperties( aDocument.Root.get() );
+                   },
+                   "normalized KiCad 6 sheet property names and ids" );
+
+        applyWhen( aTarget <= 20211123,
+                   [&]()
+                   {
+                       return removeDescendantsByHead( aDocument.Root.get(), { "instances" } );
+                   },
+                   "removed schematic symbol instance data" );
 
         if( aTarget < 20241209 )
         {
@@ -283,6 +367,13 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
     case KIND::FOOTPRINT:
     {
         // PCB and footprint syntax use the same graphical and pad-level rewrites.
+        if( aTarget < 20260603 )
+        {
+            int n = removeChildrenFromParents( aDocument.Root.get(), { "table_cell" },
+                                               { "knockout" } );
+            warnIfChanged( n, "removed PCB table-cell knockout flags" );
+        }
+
         append( removeIntroduced( aDocument.Root.get(), aTarget, boardRules() ) );
 
         std::vector<CHILD_REMOVAL_RULE> childRemovalRules;
@@ -318,13 +409,23 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                          "removed graphic solder_mask_margin fields" );
         addChildRemoval( aTarget < 20241030, { "style" }, { "arrow_direction" },
                          "removed dimension arrow direction fields" );
+        addChildRemoval( aTarget < 20250210, { "gr_text", "fp_text" },
+                         { "render_cache" },
+                         "removed PCB text render caches" );
         addChildRemoval( aTarget < 20241009, { "zone" }, { "placement" },
                          "removed zone placement fields" );
+        addChildRemoval( aTarget <= 20221018, { "zone" }, { "attr" },
+                         "removed zone attr fields" );
+        addChildRemoval( aTarget < 20240108, { "setup" },
+                         { "allow_soldermask_bridges_in_footprints" },
+                         "removed board soldermask bridge setup fields" );
         addChildRemoval( aTarget < 20241007, { "segment", "arc" },
                          { "solder_mask_margin", "solder_mask_layer" },
                          "removed track soldermask layer/margin fields" );
         addChildRemoval( aTarget < 20240617, { "table_cell" }, { "angle" },
                          "removed PCB table cell angle fields" );
+        addChildRemoval( aTarget < 20260521, { "pad" }, { "sim_electrical_type" },
+                         "removed pad simulation electrical type fields" );
         addChildRemoval( aTarget < 20231212, { "model" }, { "hide" },
                          "removed legacy-incompatible 3D model hide fields" );
         addChildRemoval( aTarget < 20230730, connectedGraphicParents, { "net" },
@@ -338,6 +439,11 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         addChildRemoval( aTarget < 20250324, { "footprint" },
                          { "duplicate_pad_numbers_are_jumpers", "jumper_pad_groups" },
                          "removed footprint jumper pad fields" );
+        addChildRemoval( aTarget <= 20221018, { "footprint", "module" },
+                         { "net_tie_pad_groups" },
+                         "removed footprint net-tie pad group fields" );
+        addChildRemoval( aTarget <= 20221018, { "footprint", "module" }, { "units" },
+                         "removed footprint unit pin grouping fields" );
         addChildRemoval( aTarget < 20250210, { "gr_text_box", "fp_text_box" },
                          { "knockout" }, "removed PCB text box knockout fields" );
         addChildRemoval( aTarget <= 20241229, { "font" }, { "face" },
@@ -345,6 +451,9 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         addChildRemoval( aTarget <= 20221018, { "pad", "via" },
                          { "remove_unused_layers" },
                          "removed pad/via remove_unused_layers fields" );
+        addChildRemoval( aTarget <= 20221018, { "pad", "zone" },
+                         { "thermal_bridge_angle" },
+                         "removed pad/zone thermal bridge angle fields" );
 
         BOARD_FAST_COUNTS boardFastCounts;
 
@@ -430,6 +539,30 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         warnIfChanged( boardFastCounts.RenamedGroupGeneratedUuidToId,
                        "renamed board group/generated uuid fields back to id" );
 
+        applyWhen( aTarget <= 20221018,
+                   [&]()
+                   {
+                       return removeAtomsFromHeadedLists( aDocument.Root.get(), { "attr" },
+                                                          { "allow_missing_courtyard" } );
+                   },
+                   "removed legacy-incompatible footprint attr flags" );
+
+        applyWhen( aTarget < 20250210,
+                   [&]()
+                   {
+                       return removeAtomsFromHeadedLists( aDocument.Root.get(), { "layer" },
+                                                          { "knockout" } );
+                   },
+                   "removed PCB layer knockout flags" );
+
+        applyWhen( aTarget < 20231231,
+                   [&]()
+                   {
+                       return unquoteAtomsInHeadedLists( aDocument.Root.get(),
+                                                        { "uuid", "tstamp", "id" }, 1 );
+                   },
+                   "normalized PCB UUID/tstamp/id atoms for legacy parsers" );
+
         applyWhen( aTarget < 20240225,
                    [&]()
                    {
@@ -439,6 +572,23 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                                                         "solder_paste_ratio" );
                    },
                    "renamed solder_paste_margin_ratio fields to legacy solder_paste_ratio" );
+
+        applyWhen( aTarget <= 20221018,
+                   [&]()
+                   {
+                       return renameChildHeadInParents( aDocument.Root.get(),
+                                                        { "pad", "zone" },
+                                                        "thermal_bridge_width",
+                                                        "thermal_width" );
+                   },
+                   "renamed thermal_bridge_width fields to legacy thermal_width" );
+
+        applyWhen( aTarget <= 20221018,
+                   [&]()
+                   {
+                       return downgradePCBStrokeToLegacyWidth( aDocument.Root.get() );
+                   },
+                   "downgraded PCB stroke blocks to legacy width fields" );
 
         applyWhen( aTarget < 20250309 && aTarget >= 20240928,
                    [&]()
@@ -453,6 +603,9 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         {
             int n = downgradeDimensionsToGraphics( aDocument.Root.get() );
             warnIfChanged( n, "downgraded PCB dimensions to legacy graphic annotations" );
+
+            n = downgradePCBStrokeToLegacyWidth( aDocument.Root.get() );
+            warnIfChanged( n, "downgraded generated PCB dimension strokes to legacy width fields" );
         }
 
         // Pad/via post-machining fields are already removed by the broad feature gate above.

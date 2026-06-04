@@ -15,6 +15,10 @@ std::string KindName( KIND aKind )
     case KIND::FOOTPRINT:      return "footprint";
     case KIND::DESIGN_RULES:   return "design-rules";
     case KIND::WORKSHEET:      return "worksheet";
+    case KIND::LEGACY_SCHEMATIC:             return "legacy-schematic";
+    case KIND::LEGACY_SYMBOL_LIBRARY:        return "legacy-symbol-library";
+    case KIND::LEGACY_SYMBOL_DOCUMENTATION:  return "legacy-symbol-documentation";
+    case KIND::LEGACY_PROJECT:               return "legacy-project";
     default:                   return "unknown";
     }
 }
@@ -51,6 +55,14 @@ KIND DetectKind( const std::filesystem::path& aPath, const std::string& aTopLeve
         return KIND::DESIGN_RULES;
     if( ext == ".kicad_wks" )
         return KIND::WORKSHEET;
+    if( ext == ".sch" )
+        return KIND::LEGACY_SCHEMATIC;
+    if( ext == ".lib" )
+        return KIND::LEGACY_SYMBOL_LIBRARY;
+    if( ext == ".dcm" )
+        return KIND::LEGACY_SYMBOL_DOCUMENTATION;
+    if( ext == ".pro" )
+        return KIND::LEGACY_PROJECT;
 
     return KIND::UNKNOWN;
 }

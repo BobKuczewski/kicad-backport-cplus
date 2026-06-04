@@ -1,38 +1,39 @@
 # KiCad 파일 형식 버전 차이
 
-이 문서는 영어 기준 문서와 동일한 구조로 동기화되어 있습니다. KiCad 기술 용어, token, upstream 변경 이름은 오역을 피하기 위해 의도적으로 그대로 유지합니다.
+이 문서는 백포트에서 사용되는 KiCad 파일 형식 버전 차이를 추적합니다.
+변환기. 최신 안정 버전이나 개발 버전을 추가할 수 있도록 구성되어 있습니다.
+파일 이름을 바꾸지 않고.
 
-이 문서는 backport converter가 사용하는 KiCad file format version 차이를 정리합니다.
-새 stable version 또는 development version을 추가해도 파일 이름을 바꾸지 않도록 구성했습니다.
+마지막 업데이트: 2026-06-05.
 
-마지막 업데이트: 2026-06-04.
-
-## 출처와 방법
+## 출처 및 방법
 
 검토한 출처:
 
-- KiCad 공식 GitLab tag 및 source file.
-- `E:/WORKS/MY/kicadProject/kicad`의 local KiCad checkout.
-- Local refs and tags: `origin/4.0`, `4.0.0`, `origin/5.0`, `origin/5.1`,
+- KiCad 공식 GitLab 태그 및 소스 파일.
+- `E:/WORKS/MY/kicadProject/kicad`에서 로컬 KiCad checkout.
+- 로컬 참조 및 태그: `origin/4.0`, `4.0.0`, `origin/5.0`, `origin/5.1`,
   `5.0.0`, `5.1.0`, `6.0.0`, `7.0.0`, `8.0.0`, `9.0.0`, `10.0.0`,
-  and `origin/10.0`.
-- local KiCad `master`. 10.0 이후 development branch 경계를 식별하는 데만 사용.
+그리고 `origin/10.0`.
+- 10.0 이후 개발 분기를 식별하는 데만 사용되는 로컬 KiCad `master`
+경계.
 - `kicad-backport-cplus` 구현, 특히:
   - `src/kicad_backport_versions.cpp`
   - `src/kicad_backport_rules.cpp`
   - `src/kicad_backport_rule_rewriters.cpp`
+  - `src/kicad_backport_upgrade.cpp`
   - `src/kicad_backport.cpp`
-- version header file:
-  - `pcbnew/kicad_plugin.h` for KiCad 4/5 PCB formats.
-  - `pcbnew/plugins/kicad/pcb_plugin.h` for KiCad 6/7 PCB formats.
+- 버전 헤더 파일:
+  - KiCad 4/5 PCB 형식의 경우 `pcbnew/kicad_plugin.h`.
+  - KiCad 6/7 PCB 형식의 경우 `pcbnew/plugins/kicad/pcb_plugin.h`.
   - `eeschema/sch_file_versions.h`
   - `pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h`
   - `include/drawing_sheet/ds_file_versions.h`
   - `pcbnew/drc/drc_rule_parser.h`
-  - `eeschema/general.h` and `eeschema/sch_legacy_plugin.h` for KiCad 4/5
-    legacy schematic formats.
+  - KiCad 4/5의 경우 `eeschema/general.h` 및 `eeschema/sch_legacy_plugin.h`
+레거시 회로도 형식.
 
-version number는 KiCad source의 활성 macro에서 가져옵니다:
+버전 번호는 활성 KiCad 소스 매크로에서 가져옵니다.
 
 - `SEXPR_SYMBOL_LIB_FILE_VERSION`
 - `SEXPR_SCHEMATIC_FILE_VERSION`
@@ -42,31 +43,31 @@ version number는 KiCad source의 활성 macro에서 가져옵니다:
 
 참고:
 
-- Board S-expression version은 footprint `.kicad_mod` file에도 적용됩니다.
-- `.kicad_dru` stayed at `20200610` from KiCad 6.0 through current 10.99 sources.
-  This only means the version macro did not change; rule semantics may still have
-  changed.
-- `.kicad_pro` is a JSON project file and uses settings/schema migration instead
-  of these S-expression date version macros. Project JSON schema differences
-  should be tracked separately.
-- KiCad 4/5 schematic 및 symbol library는 legacy `.sch`, `.lib`, `.dcm` file이며,
-  `.kicad_sch` 또는 `.kicad_sym`이 아닙니다.
+- 보드 S-표현 버전은 풋프린트 `.kicad_mod` 파일도 포함합니다.
+- `.kicad_dru`은 KiCad 6.0부터 현재 10.99 소스까지 `20200610`에 유지되었습니다.
+이는 버전 매크로가 변경되지 않았음을 의미할 뿐입니다. 규칙 의미론은 여전히
+변경되었습니다.
+- `.kicad_pro`은 JSON 프로젝트 파일이며 대신 설정/스키마 마이그레이션을 사용합니다.
+S-표현식 날짜 버전 매크로 중 하나입니다. 프로젝트 JSON 스키마 차이점
+별도로 추적해야 합니다.
+- KiCad 4/5 회로도 및 기호 라이브러리는 레거시 `.sch`, `.lib` 및
+`.kicad_sch` 또는 `.kicad_sym`이 아닌 `.dcm` 파일.
 
 ## 주요 파일 계열 매트릭스
 
-| KiCad major version | Project | Schematic | Symbol library | PCB / footprint | Worksheet | Design rules | Key point |
+| KiCad 메이저 버전 | 프로젝트 | 개략도 | 기호 라이브러리 | PCB / 풋프린트 | 워크시트 | 디자인 규칙 | 요점 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 4.0 | Legacy `.pro` | Legacy `.sch`, `EESCHEMA_VERSION=2` | `.lib` `EESchema-LIBRARY Version 2.3`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S-expression, version `4` | Legacy drawing sheet | No standalone `.kicad_dru` | PCB was already S-expression; schematic and symbol libraries were still legacy. |
-| 5.0 / 5.1 | Legacy `.pro` | Legacy `.sch`, `EESCHEMA_VERSION=4` | Commonly `.lib` `Version 2.4`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S-expression, version `20171130` | Legacy drawing sheet | No standalone `.kicad_dru` | PCB added custom pads, multi-layer keepouts, and 3D model offset changes; schematic remained legacy. |
-| 6.0 | JSON `.kicad_pro`, `.kicad_prl` | `.kicad_sch` `20211123` | `.kicad_sym` `20211014` | `20211014` | `.kicad_wks` `20210606` | `.kicad_dru` `20200610` | New schematic and symbol S-expression formats. |
-| 7.0 | JSON `.kicad_pro` | `.kicad_sch` `20230121` | `.kicad_sym` `20220914` | `20221018` | `.kicad_wks` `20220228` | `20200610` | Text boxes, fonts, DNP, simulation model changes, net ties, images, teardrop keywords. |
-| 8.0 | JSON `.kicad_pro` | `.kicad_sch` `20231120` | `.kicad_sym` `20231120` | `20240108` | `.kicad_wks` `20231118` | `20200610` | `generator_version`, V8 cleanup, PCB fields, generated objects, UUID normalization. |
-| 9.0 | JSON `.kicad_pro` | `.kicad_sch` `20250114` | `.kicad_sym` `20241209` | `20241229` | `.kicad_wks` `20231118` | `20200610` | Embedded files, tables, rule areas, component classes, padstacks, via stacks, arbitrary user layers. |
-| 10.0 | JSON `.kicad_pro` | `.kicad_sch` `20260306` | `.kicad_sym` `20251024` | `20260206` | `.kicad_wks` `20231118` | `20200610` | Variants, jumper pads, barcodes, via protection, backdrill, split via types, stopped writing netcodes. |
+| 4.0 | 레거시 `.pro` | 레거시 `.sch`, `EESCHEMA_VERSION=2` | `.lib` `EESchema-LIBRARY Version 2.3`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S-표현식, 버전 `4` | 기존 도면 시트 | 독립 실행형 없음 `.kicad_dru` | PCB는 이미 S-표현이었습니다. 회로도 및 기호 라이브러리는 여전히 레거시였습니다. |
+| 5.0 / 5.1 | 레거시 `.pro` | 레거시 `.sch`, `EESCHEMA_VERSION=4` | 일반적으로 `.lib` `Version 2.4`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S-표현식, 버전 `20171130` | 기존 도면 시트 | 독립 실행형 없음 `.kicad_dru` | PCB에 맞춤형 패드, 다층 유지부, 3D 모델 오프셋 변경 사항이 추가되었습니다. 회로도는 유산으로 남아 있습니다. |
+| 6.0 | JSON `.kicad_pro`, `.kicad_prl` | `.kicad_sch` `20211123` | `.kicad_sym` `20211014` | `20211014` | `.kicad_wks` `20210606` | `.kicad_dru` `20200610` | 새로운 회로도 및 기호 S-표현 형식. |
+| 7.0 | JSON `.kicad_pro` | `.kicad_sch` `20230121` | `.kicad_sym` `20220914` | `20221018` | `.kicad_wks` `20220228` | `20200610` | 텍스트 상자, 글꼴, DNP, 시뮬레이션 모델 변경, 네트 타이, 이미지, 눈물방울 키워드. |
+| 8.0 | JSON `.kicad_pro` | `.kicad_sch` `20231120` | `.kicad_sym` `20231120` | `20240108` | `.kicad_wks` `20231118` | `20200610` | `generator_version`, V8 정리, PCB 필드, 생성된 개체, UUID 정규화. |
+| 9.0 | JSON `.kicad_pro` | `.kicad_sch` `20250114` | `.kicad_sym` `20241209` | `20241229` | `.kicad_wks` `20231118` | `20200610` | 내장된 파일, 테이블, 규칙 영역, 구성 요소 클래스, 패드 스택, 경유 스택, 임의 사용자 레이어. |
+| 10.0 | JSON `.kicad_pro` | `.kicad_sch` `20260306` | `.kicad_sym` `20251024` | `20260206` | `.kicad_wks` `20231118` | `20200610` | 변형, 점퍼 패드, 바코드, 보호를 통해, 백드릴, 유형을 통해 분할, 넷코드 작성이 중지되었습니다. |
 
 ## 안정 버전 매트릭스
 
-| KiCad tag | `.kicad_sym` | `.kicad_sch` | `.kicad_pcb` / `.kicad_mod` | `.kicad_wks` | `.kicad_dru` |
+| KiCad 태그 | `.kicad_sym` | `.kicad_sch` | `.kicad_pcb` / `.kicad_mod` | `.kicad_wks` | `.kicad_dru` |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | `6.0.0` | 20211014 | 20211123 | 20211014 | 20210606 | 20200610 |
 | `7.0.0` | 20220914 | 20230121 | 20221018 | 20220228 | 20200610 |
@@ -74,337 +75,339 @@ version number는 KiCad source의 활성 macro에서 가져옵니다:
 | `9.0.0` | 20241209 | 20250114 | 20241229 | 20231118 | 20200610 |
 | `10.0.0` | 20251024 | 20260306 | 20260206 | 20231118 | 20200610 |
 
-## KiCad 4/5 legacy 경계
+## KiCad 4/5 레거시 경계
 
-KiCad 4와 5의 schematic data는 단순히 오래된 S-expression version이 아닙니다.
-schematic 및 symbol-library file family 자체가 다릅니다:
+KiCad 4 및 5는 단지 도식 데이터를 위한 이전 S-표현 버전이 아닙니다. 그들
+다른 회로도 및 기호 라이브러리 파일 계열을 사용합니다.
 
-| Area | KiCad 4.0 | KiCad 5.0 / 5.1 |
+| 영역 | 키캐드 4.0 | 키캐드 5.0 / 5.1 |
 | --- | --- | --- |
-| Schematic header | `EESchema Schematic File Version 2` | `EESchema Schematic File Version 4` |
-| Schematic macro | `EESCHEMA_VERSION 2` | `EESCHEMA_VERSION 4` |
-| Symbol library header | Commonly `EESchema-LIBRARY Version 2.3` | Commonly `EESchema-LIBRARY Version 2.4` |
-| PCB version | `4` | `20171130` |
+| 회로도 헤더 | `EESchema Schematic File Version 2` | `EESchema Schematic File Version 4` |
+| 회로도 매크로 | `EESCHEMA_VERSION 2` | `EESCHEMA_VERSION 4` |
+| 기호 라이브러리 헤더 | 일반적으로 `EESchema-LIBRARY Version 2.3` | 일반적으로 `EESchema-LIBRARY Version 2.4` |
+| PCB 버전 | `4` | `20171130` |
 
-KiCad 6 development line 이전의 KiCad 5 PCB/footprint version point:
+KiCad 5 PCB/풋프린트 버전은 KiCad 6 개발 라인 이전을 가리킵니다.
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20160815 | Differential pair settings per net class |
-| 20170123 | `EDA_TEXT` refactor; moved `hide` |
-| 20170920 | Long pad names and custom pad shape |
-| 20170922 | Keepout zones can exist on multiple layers |
-| 20171114 | Save 3D model offset in mm instead of inches |
-| 20171125 | Locked/unlocked footprint text |
-| 20171130 | 3D model offset written using the `offset` parameter |
+| 20160815 | 넷 클래스별 차동 쌍 설정 |
+| 20170123 | `EDA_TEXT` 리팩터링; `hide`을(를) 옮겼습니다. |
+| 20170920 | 긴 패드 이름과 사용자 정의 패드 모양 |
+| 20170922 | 금지 구역은 여러 레이어에 존재할 수 있습니다. |
+| 20171114 | 인치 대신 mm 단위로 3D 모델 오프셋 저장 |
+| 20171125 | 잠긴/잠금 해제된 발자국 텍스트 |
+| 20171130 | `offset` 매개변수를 사용하여 작성된 3D 모델 오프셋 |
 
-backport 영향:
+백포트에 미치는 영향:
 
-- KiCad 4/5 schematic targets require a legacy `.sch` writer, not just a
-  `.kicad_sch` version rewrite.
-- KiCad 4/5 symbol targets require legacy `.lib` / `.dcm` output or an explicit
-  lossy/unimplemented warning.
-- KiCad 4 board targets use version `4`; KiCad 5 board targets use `20171130`.
-- V6+ UUIDs, text boxes, embedded files, variants, tables, rule areas, component
-  classes, padstacks, via stacks, backdrill, and similar structures cannot be
-  preserved directly in V4/V5 files.
+- KiCad 4/5 회로도 대상에는 레거시 `.sch` 작성자가 필요합니다.
+`.kicad_sch` 버전 재작성.
+- KiCad 4/5 기호 대상에는 레거시 `.lib` / `.dcm` 출력 또는 명시적 출력이 필요합니다.
+손실/구현되지 않은 경고.
+- KiCad 4 보드 대상은 버전 `4`을 사용합니다. KiCad 5 보드 타겟은 `20171130`을 사용합니다.
+- V6+ UUID, 텍스트 상자, 내장 파일, 변형, 테이블, 규칙 영역, 구성 요소
+클래스, 패드 스택, 비아 스택, 백드릴 및 이와 유사한 구조는 사용할 수 없습니다.
+V4/V5 파일에 직접 보존됩니다.
 
 ## 현재 개발 버전 매트릭스
 
-검토한 KiCad `master` branch는 이미 11.0 development로 이동했습니다.
-이 항목들은 10.0 이후 development item이며 KiCad 10.0 stable format support로 표시하면 안 됩니다:
+검토된 KiCad `master` 분기는 이미 11.0 개발로 이동했습니다.
+이러한 결과는 10.0 이후 개발 항목이므로 KiCad로 라벨을 지정해서는 안 됩니다.
+10.0 안정적인 형식 지원:
 
-| File type | 현재 개발 version | 참고 |
+| 파일 형식 | 현재 개발 버전 | 메모 |
 | --- | ---: | --- |
-| Board `.kicad_pcb` | `20260603` | Knockout flag on table cells |
-| Footprint `.kicad_mod` | `20260603` | Footprints use the PCB S-expression version |
-| Schematic `.kicad_sch` | `20260512` | Net chains |
-| Symbol library `.kicad_sym` | `20260508` | Native ellipse primitive |
-| Worksheet `.kicad_wks` | `20231118` | Generator version / KiCad 8 cleanup |
-| Design rules `.kicad_dru` | `20200610` | No current-development-specific version bump found |
+| 보드 `.kicad_pcb` | `20260603` | 테이블 셀의 녹아웃 플래그 |
+| 발자국 `.kicad_mod` | `20260603` | 발자국은 PCB S-표현 버전을 사용합니다. |
+| 회로도 `.kicad_sch` | `20260512` | 넷체인 |
+| 기호 라이브러리 `.kicad_sym` | `20260508` | 기본 타원 프리미티브 |
+| 워크시트 `.kicad_wks` | `20231118` | 발전기 버전 / KiCad 8 정리 |
+| 디자인 규칙 `.kicad_dru` | `20200610` | 현재 개발별 버전 범프가 발견되지 않았습니다. |
 
-지금까지 확인한 10.0 이후 개발 버전 단계:
+지금까지 발견된 10.0 이후 개발 버전 단계는 다음과 같습니다.
 
-| Version | File type | 변경 |
+| 버전 | 파일 형식 | 변화 |
 | ---: | --- | --- |
-| 20260410 | Board / footprint | Extruded 3D body |
-| 20260508 | Board / footprint | Native PCB ellipse and ellipse-arc primitives |
-| 20260508 | Schematic / symbol | Native schematic/symbol ellipse and ellipse-arc primitives |
-| 20260511 | Board | Dielectric frequency-dependent stackup models |
-| 20260512 | Board / schematic | Net chains |
-| 20260513 | Board | Copper thieving zone fill mode |
-| 20260521 | Board / footprint | Pad simulation electrical types |
-| 20260603 | Board / footprint | Knockout flag on table cells |
+| 20260410 | Board / footprint | 돌출된 3D 본체 |
+| 20260508 | Board / footprint | 기본 PCB 타원 및 타원호 기본 요소 |
+| 20260508 | 회로도 / 기호 | 기본 도식/기호 타원 및 타원-호 기본 요소 |
+| 20260511 | 판자 | 유전체 주파수 종속 스택업 모델 |
+| 20260512 | 보드 / 회로도 | 넷체인 |
+| 20260513 | 판자 | 구리 도둑질 영역 채우기 모드 |
+| 20260521 | Board / footprint | 패드 시뮬레이션 전기 유형 |
+| 20260603 | Board / footprint | 테이블 셀의 녹아웃 플래그 |
 
-## 6.0에서 7.0
+## 6.0~7.0
 
-### Symbol Library
+### 기호 라이브러리
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20220101 | Class flags |
-| 20220102 | Fonts |
-| 20220126 | Text boxes |
-| 20220328 | Text box `start/end` changed to `at/size` |
-| 20220331 | Text colors |
-| 20220914 | Symbol unit display names |
-| 20220914 | Property IDs are no longer saved |
+| 20220101 | 클래스 플래그 |
+| 20220102 | 글꼴 |
+| 20220126 | 텍스트 상자 |
+| 20220328 | 텍스트 상자 `start/end`이(가) `at/size`로 변경되었습니다. |
+| 20220331 | 텍스트 색상 |
+| 20220914 | 기호 단위 표시 이름 |
+| 20220914 | 속성 ID는 더 이상 저장되지 않습니다. |
 
-### Schematic
+### 개략도
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20220101 | Circles, arcs, rects, polys, beziers |
-| 20220102 | Dash-dot-dot |
-| 20220103 | Label fields |
-| 20220104 | Fonts |
-| 20220124 | `netclass_flag` renamed to `directive_label` |
-| 20220126 | Text boxes |
-| 20220328 | Text box `start/end` changed to `at/size` |
-| 20220331 | Text colors |
-| 20220404 | Default schematic symbol instance data |
-| 20220622 | New simulation model format |
-| 20220820 | Default symbol instance data fix |
-| 20220822 | Text object hyperlinks |
-| 20220903 | Field name visibility |
-| 20220904 | Do not autoplace field option |
-| 20220914 | DNP support |
-| 20220929 | Property IDs are no longer saved |
-| 20221002 | Instance data moved back to symbol definition |
-| 20221004 | Instance data moved back to symbol definition |
-| 20221110 | Sheet instance data moved to sheet definition |
-| 20221126 | Removed value and footprint from instance data |
-| 20221206 | Simulation model fields V6 to V7 |
-| 20230121 | `SCH_MARKER` sheet path serialization |
+| 20220101 | 원, 호, 직사각형, 폴리, 베지어 |
+| 20220102 | 대시-점-점 |
+| 20220103 | 라벨 필드 |
+| 20220104 | 글꼴 |
+| 20220124 | `netclass_flag`의 이름이 `directive_label`로 변경되었습니다. |
+| 20220126 | 텍스트 상자 |
+| 20220328 | 텍스트 상자 `start/end`이(가) `at/size`로 변경되었습니다. |
+| 20220331 | 텍스트 색상 |
+| 20220404 | 기본 구조도 기호 인스턴스 데이터 |
+| 20220622 | 새로운 시뮬레이션 모델 형식 |
+| 20220820 | 기본 기호 인스턴스 데이터 수정 |
+| 20220822 | 텍스트 개체 하이퍼링크 |
+| 20220903 | 필드 이름 공개 |
+| 20220904 | 필드 자동 배치 안 함 옵션 |
+| 20220914 | DNP 지원 |
+| 20220929 | 속성 ID는 더 이상 저장되지 않습니다. |
+| 20221002 | 인스턴스 데이터가 기호 정의로 다시 이동되었습니다. |
+| 20221004 | 인스턴스 데이터가 기호 정의로 다시 이동되었습니다. |
+| 20221110 | 시트 인스턴스 데이터가 시트 정의로 이동되었습니다. |
+| 20221126 | 인스턴스 데이터에서 가치와 공간이 제거되었습니다. |
+| 20221206 | 시뮬레이션 모델 필드 V6~V7 |
+| 20230121 | `SCH_MARKER` 시트 경로 직렬화 |
 
-### PCB / Footprint
+### PCB / 발자국
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20211226 | Radial dimension |
-| 20211227 | Thermal relief spoke angle overrides |
-| 20211228 | `allow_soldermask_bridges` footprint attribute |
-| 20211229 | Stroke formatting |
-| 20211230 | Dimensions in footprints |
-| 20211231 | Private footprint layers |
-| 20211232 | Fonts |
-| 20220131 | Textboxes |
-| 20220211 | Ended V5 zone fill strategy support |
-| 20220225 | Removed TEDIT |
-| 20220308 | Knockout text and locked graphic text property |
-| 20220331 | Plot on all layers selection setting |
-| 20220417 | Automatic dimension precisions |
-| 20220427 | Excluded Edge.Cuts and Margin from footprint private layers |
-| 20220609 | Teardrop keywords |
-| 20220621 | Image support |
-| 20220815 | `allow-soldermask-bridges-in-FPs` flag |
-| 20220818 | First-class net ties |
-| 20220914 | Custom-shape pad number boxes |
-| 20221018 | Via and pad zone-layer-connections |
+| 20211226 | 방사형 치수 |
+| 20211227 | 열 완화 스포크 각도 오버라이드 |
+| 20211228 | `allow_soldermask_bridges` 발자국 속성 |
+| 20211229 | 획 서식 |
+| 20211230 | 발자국의 치수 |
+| 20211231 | 개인 공간 레이어 |
+| 20211232 | 글꼴 |
+| 20220131 | 텍스트 상자 |
+| 20220211 | V5 영역 채우기 전략 지원 종료 |
+| 20220225 | TEDIT가 제거되었습니다. |
+| 20220308 | 녹아웃 텍스트 및 잠긴 그래픽 텍스트 속성 |
+| 20220331 | 모든 레이어 선택 설정에 플롯 |
+| 20220417 | 자동 치수 정밀도 |
+| 20220427 | Edge.Cuts 및 Margin을 발자국 전용 레이어에서 제외했습니다. |
+| 20220609 | 눈물방울 키워드 |
+| 20220621 | 이미지 지원 |
+| 20220815 | `allow-soldermask-bridges-in-FPs` 플래그 |
+| 20220818 | 일류 네트 타이 |
+| 20220914 | 맞춤형 모양의 패드 번호 상자 |
+| 20221018 | 비아 및 패드 존-레이어-연결 |
 
-### Worksheet
+### 워크시트
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20220228 | Font support |
+| 20220228 | 글꼴 지원 |
 
-## 7.0에서 8.0
+## 7.0~8.0
 
-### Symbol Library
+### 기호 라이브러리
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20230620 | `ki_description` changed to `Description` field |
-| 20231120 | `generator_version` and V8 cleanup |
+| 20230620 | `ki_description`이(가) `Description` 필드로 변경되었습니다. |
+| 20231120 | `generator_version` 및 V8 정리 |
 
-### Schematic
+### 개략도
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20230221 | Modern power symbols, editable value = net |
-| 20230409 | `exclude_from_sim` markup |
-| 20230620 | `ki_description` changed to `Description` field |
-| 20230808 | `Sim.Enable` field moved to `exclude_from_sim` attribute |
-| 20230819 | Multiple levels of library symbol inheritance |
-| 20231120 | `generator_version` and V8 cleanup |
+| 20230221 | 최신 전력 기호, 편집 가능한 값 = 순 |
+| 20230409 | `exclude_from_sim` 마크업 |
+| 20230620 | `ki_description`이(가) `Description` 필드로 변경되었습니다. |
+| 20230808 | `Sim.Enable` 필드가 `exclude_from_sim` 속성으로 이동되었습니다. |
+| 20230819 | 다양한 수준의 라이브러리 기호 상속 |
+| 20231120 | `generator_version` 및 V8 정리 |
 
-### PCB / Footprint
+### PCB / 발자국
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20230410 | DNP attribute propagated from schematic to `attr` |
-| 20230517 | Pad and via teardrop parameters |
-| 20230620 | PCB fields |
-| 20230730 | Graphic shapes connectivity |
-| 20230825 | Textbox explicit border flag |
-| 20230906 | Multiple image type support |
-| 20230913 | Custom-shaped-pad spoke templates |
-| 20231007 | Generative objects |
-| 20231014 | V8 file format normalization |
-| 20231212 | Reference image locking / UUIDs, footprint boolean format |
-| 20231231 | Generators and groups use `uuid` instead of `id` |
-| 20240108 | Teardrop parameters changed to explicit booleans |
+| 20230410 | 회로도에서 `attr`로 전파된 DNP 속성 |
+| 20230517 | 패드 및 비아 티어드롭 매개변수 |
+| 20230620 | PCB 분야 |
+| 20230730 | 그래픽 모양 연결 |
+| 20230825 | 텍스트 상자 명시적 테두리 플래그 |
+| 20230906 | 다양한 이미지 유형 지원 |
+| 20230913 | 맞춤형 모양의 패드 스포크 템플릿 |
+| 20231007 | 생성 객체 |
+| 20231014 | V8 파일 형식 정규화 |
+| 20231212 | 참조 이미지 잠금/UUID, 풋프린트 부울 형식 |
+| 20231231 | 생성기와 그룹은 `id` 대신 `uuid`을 사용합니다. |
+| 20240108 | 눈물방울 매개변수가 명시적 부울로 변경됨 |
 
-### Worksheet
+### 워크시트
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20230607 | Images saved as base64 |
-| 20231118 | `generator_version` and V8 file format cleanup |
+| 20230607 | base64로 저장된 이미지 |
+| 20231118 | `generator_version` 및 V8 파일 형식 정리 |
 
-## 8.0에서 9.0
+## 8.0~9.0
 
-### Symbol Library
+### 기호 라이브러리
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20240529 | Embedded files |
-| 20240819 | Embedded file hash algorithm changed to Murmur3 |
-| 20241209 | `SCH_FIELD` private flags |
+| 20240529 | 삽입된 파일 |
+| 20240819 | 내장 파일 해시 알고리즘이 Murmur3으로 변경되었습니다. |
+| 20241209 | `SCH_FIELD` 개인 플래그 |
 
-### Schematic
+### 개략도
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20240101 | Tables |
-| 20240417 | Rule areas |
-| 20240602 | Sheet attributes |
-| 20240620 | Embedded files |
-| 20240716 | Multiple netclass assignments |
-| 20240812 | Netclass color highlighting |
-| 20240819 | Embedded file hash algorithm changed to Murmur3 |
-| 20241004 | Symbol `hide` uses booleans |
-| 20241209 | `SCH_FIELD` private flags |
-| 20250114 | Text variable cross references use full paths |
+| 20240101 | 테이블 |
+| 20240417 | 규칙 영역 |
+| 20240602 | 시트 속성 |
+| 20240620 | 삽입된 파일 |
+| 20240716 | 다중 넷클래스 할당 |
+| 20240812 | Netclass 색상 강조 표시 |
+| 20240819 | 내장 파일 해시 알고리즘이 Murmur3으로 변경되었습니다. |
+| 20241004 | 기호 `hide`은 부울을 사용합니다. |
+| 20241209 | `SCH_FIELD` 개인 플래그 |
+| 20250114 | 텍스트 변수 상호 참조는 전체 경로를 사용합니다. |
 
-### PCB / Footprint
+### PCB / 발자국
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20240201 | Overrides use nullable properties |
-| 20240202 | Tables |
-| 20240225 | `solder_paste_margin` rationalization |
-| 20240609 | `tenting` keyword |
-| 20240617 | Table angles |
-| 20240703 | User layer types |
-| 20240706 | Embedded files |
-| 20240819 | Embedded file hash algorithm changed to Murmur3 |
-| 20240928 | Component classes |
-| 20240929 | Complex padstacks |
-| 20241006 | Via stacks |
-| 20241007 | Tracks can carry soldermask layer and margin |
-| 20241009 | Placement rule area format evolution |
-| 20241010 | Graphic shapes can carry soldermask layer and margin |
-| 20241030 | Dimension arrow directions, `suppress_zeroes` normalization |
-| 20241129 | Normalized `keep_text_aligned` and fill properties |
-| 20241228 | Teardrop curve points changed to boolean |
-| 20241229 | User layers expanded to arbitrary count |
+| 20240201 | 재정의에서는 nullable 속성을 사용합니다. |
+| 20240202 | 테이블 |
+| 20240225 | `solder_paste_margin` 합리화 |
+| 20240609 | `tenting` 키워드 |
+| 20240617 | 테이블 각도 |
+| 20240703 | 사용자 레이어 유형 |
+| 20240706 | 삽입된 파일 |
+| 20240819 | 내장 파일 해시 알고리즘이 Murmur3으로 변경되었습니다. |
+| 20240928 | 구성요소 클래스 |
+| 20240929 | 복잡한 패드스택 |
+| 20241006 | 스택을 통해 |
+| 20241007 | 트랙은 솔더마스크 레이어와 마진을 전달할 수 있습니다. |
+| 20241009 | 배치 규칙 영역 형식의 진화 |
+| 20241010 | 그래픽 모양은 솔더마스크 레이어와 여백을 가질 수 있습니다. |
+| 20241030 | 치수 화살표 방향, `suppress_zeroes` 정규화 |
+| 20241129 | 정규화된 `keep_text_aligned` 및 채우기 속성 |
+| 20241228 | 눈물방울 곡선 점이 부울로 변경되었습니다. |
+| 20241229 | 임의 개수로 확장된 사용자 레이어 |
 
-### Worksheet
+### 워크시트
 
-No worksheet version bump; remains `20231118`.
+워크시트 버전 충돌이 없습니다. `20231118`으로 남아 있습니다.
 
-## 9.0에서 10.0
+## 9.0~10.0
 
-### Symbol Library
+### 기호 라이브러리
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20250318 | `~` no longer means empty text |
-| 20250324 | Jumper pin groups |
-| 20250829 | Rounded rectangles |
-| 20250901 | Stacked pin notation |
-| 20250925 | Bus aliases in project file |
-| 20251024 | Property formatting updates: `do_not_autoplace`, `show_name` |
+| 20250318 | `~`은 더 이상 빈 텍스트를 의미하지 않습니다. |
+| 20250324 | 점퍼 핀 그룹 |
+| 20250829 | 둥근 직사각형 |
+| 20250901 | 누적 핀 표기법 |
+| 20250925 | 프로젝트 파일의 버스 별칭 |
+| 20251024 | 속성 형식 업데이트: `do_not_autoplace`, `show_name` |
 
-### Schematic
+### 개략도
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20250222 | Hatched fills for shapes |
-| 20250227 | Local power symbols |
-| 20250318 | `~` no longer means empty text |
-| 20250425 | UUIDs for tables |
-| 20250513 | Groups can carry design-block `lib_id` |
-| 20250610 | Rule areas support DNP and other flags |
-| 20250827 | Custom body styles |
-| 20250829 | Rounded rectangles |
-| 20250901 | Stacked pin notation |
-| 20250922 | Schematic variants |
-| 20251012 | Flat schematic hierarchy support |
-| 20251028 | Property formatting updates: `do_not_autoplace`, `show_name` |
-| 20260101 | PCB variants |
-| 20260306 | Variant `in_bom` semantics corrected |
+| 20250222 | 모양의 해치 채우기 |
+| 20250227 | 지역 전력 기호 |
+| 20250318 | `~`은 더 이상 빈 텍스트를 의미하지 않습니다. |
+| 20250425 | 테이블의 UUID |
+| 20250513 | 그룹은 디자인 블록 `lib_id`을(를) 전달할 수 있습니다. |
+| 20250610 | 규칙 영역은 DNP 및 기타 플래그를 지원합니다. |
+| 20250827 | 맞춤형 바디 스타일 |
+| 20250829 | 둥근 직사각형 |
+| 20250901 | 누적 핀 표기법 |
+| 20250922 | 회로도 변형 |
+| 20251012 | 평면 도식 계층 지원 |
+| 20251028 | 속성 형식 업데이트: `do_not_autoplace`, `show_name` |
+| 20260101 | PCB 변형 |
+| 20260306 | 변형 `in_bom` 의미 체계가 수정됨 |
 
-### PCB / Footprint
+### PCB / 발자국
 
-| Version | 변경 |
+| 버전 | 변화 |
 | ---: | --- |
-| 20250210 | Textbox knockout |
-| 20250222 | PCB shapes hatching |
-| 20250228 | IPC-4761 via protection features |
-| 20250302 | Zone hatching offsets |
-| 20250309 | Component class dynamic assignment rules |
-| 20250324 | Jumper pads |
-| 20250401 | Time domain length tuning |
-| 20250513 | Groups can carry design-block `lib_id` |
-| 20250801 | `(island)` changed to `(island yes/no)` |
-| 20250811 | Press-fit pad fabrication property |
-| 20250818 | Footprints support custom layer counts |
-| 20250829 | Rounded rectangles |
-| 20250901 | PCB points |
-| 20250907 | UUIDs for tables |
-| 20250909 | Footprint unit metadata: units / pins |
-| 20250914 | `PCB_BARCODE` objects |
-| 20250926 | Via types split into blind / buried / through |
-| 20251027 | Pad-to-die delays scaling fix |
-| 20251028 | Stopped writing netcodes; they are internal implementation details |
-| 20251101 | Backdrill and tertiary drill support |
-| 20260101 | PCB variants with per-footprint overrides |
-| 20260206 | Barcode and variant attribute serialization fixes |
+| 20250210 | 텍스트 상자 녹아웃 |
+| 20250222 | PCB 모양 해칭 |
+| 20250228 | 보호 기능을 통한 IPC-4761 |
+| 20250302 | 영역 해칭 오프셋 |
+| 20250309 | 구성요소 클래스 동적 할당 규칙 |
+| 20250324 | 점퍼 패드 |
+| 20250401 | 시간 영역 길이 조정 |
+| 20250513 | 그룹은 디자인 블록 `lib_id`을(를) 전달할 수 있습니다. |
+| 20250801 | `(island)`이(가) `(island yes/no)`(으)로 변경되었습니다. |
+| 20250811 | 압입패드 제작특성 |
+| 20250818 | 발자국은 사용자 정의 레이어 수를 지원합니다. |
+| 20250829 | 둥근 직사각형 |
+| 20250901 | PCB 포인트 |
+| 20250907 | 테이블의 UUID |
+| 20250909 | 공간 단위 메타데이터: 단위/핀 |
+| 20250914 | `PCB_BARCODE` 개체 |
+| 20250926 | 블라인드 / 매설 / 관통형으로 구분되는 비아 유형 |
+| 20251027 | 패드-다이 지연 스케일링 수정 |
+| 20251028 | 넷코드 작성이 중지되었습니다. 내부 구현 세부정보입니다. |
+| 20251101 | 백드릴 및 3차 드릴 지원 |
+| 20260101 | 발자국당 재정의가 포함된 PCB 변형 |
+| 20260206 | 바코드 및 변형 속성 직렬화 수정 |
 
-### Worksheet
+### 워크시트
 
-No worksheet version bump; remains `20231118`.
+워크시트 버전 충돌이 없습니다. `20231118`으로 남아 있습니다.
 
-## 10.0에서 현재 개발 버전
+## 10.0에서 현재 개발까지
 
-KiCad 10 target file과 비교하면 검토한 현재 development branch에는
-다음 newer format step이 추가되어 있습니다:
+KiCad 10 대상 파일과 비교하여 검토된 현재 개발 브랜치
+다음과 같은 최신 형식 단계를 추가합니다.
 
-| Version | File type | Difference |
+| 버전 | 파일 형식 | 차이점 |
 | ---: | --- | --- |
-| 20260410 | Board / footprint | Extruded 3D body metadata in footprint model blocks |
-| 20260508 | Board / footprint | Native PCB ellipse and ellipse-arc primitives |
-| 20260508 | Schematic / symbol | Native schematic/symbol ellipse and ellipse-arc primitives |
-| 20260511 | Board | Dielectric frequency-dependent stackup model fields |
-| 20260512 | Board | Net chain aggregation block |
-| 20260512 | Schematic | Net chain records |
-| 20260513 | Board | Copper thieving zone fill mode |
-| 20260521 | Board / footprint | Pad simulation electrical type, serialized as `sim_electrical_type` on pads |
-| 20260603 | Board / footprint | Table-cell `knockout` flag |
+| 20260410 | Board / footprint | 발자국 모델 블록의 돌출된 3D 본체 메타데이터 |
+| 20260508 | Board / footprint | 기본 PCB 타원 및 타원호 기본 요소 |
+| 20260508 | 회로도 / 기호 | 기본 도식/기호 타원 및 타원-호 기본 요소 |
+| 20260511 | 판자 | 유전체 주파수 종속 스택업 모델 필드 |
+| 20260512 | 판자 | 넷 체인 집합 블록 |
+| 20260512 | 개략도 | 넷체인 레코드 |
+| 20260513 | 판자 | 구리 도둑질 영역 채우기 모드 |
+| 20260521 | Board / footprint | 패드 시뮬레이션 전기 유형, 패드에 `sim_electrical_type`로 직렬화됨 |
+| 20260603 | Board / footprint | 테이블 셀 `knockout` 플래그 |
 
-## 현재 개발 파일 기준 backport 대상 요약
+## 현재 개발 파일의 백포트 대상 요약
 
-Compared with older supported targets, 10.99 introduces or retains newer
-constructs that must be removed, simplified, or renamed when backporting:
+이전에 지원되는 대상과 비교하여 10.99에서는 최신 버전을 도입하거나 유지합니다.
+백포트 시 제거, 단순화 또는 이름 변경이 필요한 구성:
 
-| Target | Board / footprint target | Schematic target | Symbol target | Main downgrade areas from current development |
+| 목표 | 보드/풋프린트 타겟 | 도식적 타겟 | 기호 대상 | 현재 개발의 주요 다운그레이드 영역 |
 | --- | ---: | ---: | ---: | --- |
-| KiCad 10 | `20260206` | `20260306` | `20251024` | Remove development-only extruded body metadata, native ellipses, dielectric frequency fields, net chains, copper thieving, pad simulation electrical types, and table-cell knockout flags |
-| KiCad 9 | `20241229` | `20250114` | `20241209` | KiCad 10 items plus PCB shape hatching, via protection, zone hatch offsets, jumper pads, group design-block IDs, custom layer counts, rounded rectangles, PCB points, table UUIDs, barcodes, split via types, netcode omission, backdrill/post-machining, PCB variants, schematic variants/body styles/rounded rectangles/stacked pins/property formatting |
-| KiCad 8 | `20240108` | `20231120` | `20231120` | KiCad 9 items plus tables, embedded files, component classes, padstacks, via stacks, rule areas, tenting, user layer expansion, sheet attributes, multiple netclass assignments, netclass color highlighting |
-| KiCad 7 | `20221018` | `20230121` | `20220914` | KiCad 8 items plus PCB fields, DNP attribute propagation, modern teardrops, custom pad spoke templates, generators, UUID/id normalization, text boxes, images, net ties, font/field formatting, rule areas, modern schematic simulation/exclude flags |
+| KiCad 10 | `20260206` | `20260306` | `20251024` | 개발 전용 돌출 본체 메타데이터, 기본 타원, 유전체 주파수 필드, 네트 체인, 구리 도둑질, 패드 시뮬레이션 전기 유형 및 테이블 셀 녹아웃 플래그를 제거합니다. |
+| KiCad 9 | `20241229` | `20250114` | `20241209` | KiCad 10개 항목과 PCB 모양 해칭, 비아 보호, 영역 해치 오프셋, 점퍼 패드, 그룹 디자인 블록 ID, 사용자 정의 레이어 수, 둥근 직사각형, PCB 포인트, 테이블 UUID, 바코드, 분할 비아 유형, 넷코드 생략, 백드릴/사후 가공, PCB 변형, 회로도 변형/본체 스타일/둥근 직사각형/스택 핀/속성 서식 지정 |
+| KiCad 8 | `20240108` | `20231120` | `20231120` | KiCad 9 항목과 테이블, 내장 파일, 구성 요소 클래스, 패드 스택, 스택을 통해, 규칙 영역, 텐팅, 사용자 레이어 확장, 시트 속성, 다중 넷클래스 할당, 넷클래스 색상 강조 표시 |
+| KiCad 7 | `20221018` | `20230121` | `20220914` | KiCad 8 항목 및 PCB 필드, DNP 속성 전파, 최신 눈물방울, 사용자 정의 패드 스포크 템플릿, 생성기, UUID/id 정규화, 텍스트 상자, 이미지, 네트 타이, 글꼴/필드 형식 지정, 규칙 영역, 최신 회로도 시뮬레이션/제외 플래그 |
 
-## C++ backport 구현 커버리지
+## C++ 백포트 구현 범위
 
-`kicad-backport-cplus` CLI는 version-driven S-expression rewrite를 구현합니다.
-document kind별 release alias를 해석하고 downgrade rule을 적용한 뒤 target `version` field를 씁니다.
-특정 parser cutoff를 테스트하기 위해 raw numeric file format version도 받을 수 있습니다.
+`kicad-backport-cplus` CLI는 버전 기반 S-표현식 재작성을 구현합니다.
+문서 종류별로 릴리스 별칭을 확인하고 다운그레이드 규칙을 적용한 다음
+대상 `version` 필드를 작성합니다. 또한 원시 숫자 파일 형식도 허용합니다.
+특정 파서 컷오프를 테스트하기 위한 버전입니다.
 
-Supported alias mappings in code:
+코드에서 지원되는 별칭 매핑:
 
-| Alias | Symbol | Schematic | Board | Footprint | Worksheet | Design rules |
+| 별명 | 상징 | 개략도 | 판자 | 발자국 | 워크시트 | 디자인 규칙 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `6.0` | `20211014` | `20211123` | `20211014` | `20211014` | `20210606` | `20200610` |
 | `7.0` | `20220914` | `20230121` | `20221018` | `20221018` | `20220228` | `20200610` |
@@ -412,240 +415,338 @@ Supported alias mappings in code:
 | `9.0` | `20241209` | `20250114` | `20241229` | `20241229` | `20231118` | `20200610` |
 | `10.0` | `20251024` | `20260306` | `20260206` | `20260206` | `20231118` | `20200610` |
 
-converter는 오래된 file을 upgrade하지 않습니다. source file의 numeric version이 요청한 target version보다 낮으면
-file을 변경 없이 복사하고 report에는 source version을 유지합니다.
+소스 파일에 요청된 숫자 버전이 이미 정확하게 포함되어 있는 경우
+변환기는 변경하지 않고 복사합니다. 소스 버전이 타겟 버전보다 낮은 경우
+C++ 구현은 이제 이전에 제한된 호환성 업그레이드를 적용합니다.
+요청된 `version` 필드 작성:
 
-### 문서 감지와 프로젝트 처리
-
-C++ implementation은 주로 root S-expression head에서 KiCad document kind를 감지합니다:
-
-| Root head | Kind |
+| 친절한 | 업그레이드 정규화 구현 |
 | --- | --- |
-| `kicad_symbol_lib` | Symbol library |
-| `kicad_sch` | Schematic |
-| `kicad_pcb` | Board |
-| `footprint` | Footprint |
-| `kicad_dru` | Design rules |
-| `kicad_wks`, `drawing_sheet` | Worksheet |
+| 기호 라이브러리 | 최신 타겟을 위해 레거시 글꼴 스타일 원자를 확장합니다. 핀 가시성 원자를 확장합니다. `effects`에서 `hide` 속성을 이동합니다. 기존 속성 ID를 제거합니다. |
+| 개략도 | `tstamp`의 이름을 `uuid`로 바꿉니다. `netclass_flag`의 이름을 `directive_label`로 바꿉니다. 이전 텍스트 상자 `start/end`를 `at/size`로 변환합니다. 레거시 글꼴 및 핀 가시성 원자를 확장합니다. `effects`에서 `hide` 속성을 이동합니다. 기존 속성 ID를 제거합니다. |
+| Board / footprint | 최신 대상의 경우 `tstamp`의 이름을 `uuid`로 바꿉니다. 글꼴 스타일 원자를 확장합니다. 발자국 `dnp` 원자 확장; 부울을 KiCad 7 스타일 `yes/no`으로 정규화합니다. 더 이상 사용되지 않는 `tedit`을 제거합니다. 선택적으로 레거시 숫자 네트 참조를 네트 이름으로 변환합니다. |
 
-root head가 없거나 알 수 없는 경우 file extension으로 fallback합니다:
-`.kicad_sym`, `.kicad_sch`, `.kicad_pcb`, `.kicad_mod`, `.kicad_dru`,
-`.kicad_wks`.
+이는 완전한 의미론적 업그레이드 엔진이 아닙니다. 구문만 정규화합니다.
+변환기는 이미 표현 방법을 알고 있습니다.
 
-When converting a project directory or `.kicad_pro`, it copies only editable
-KiCad project inputs and common local 3D model files. Generated outputs,
-history/backup folders, Gerbers, fabrication outputs, BOMs, and temporary files
-are skipped. For KiCad 7 and KiCad 8 board targets it also creates legacy
-`.kicad_prl` local board display settings so converted through-hole pads remain
-visible.
+### 구현된 릴리스 대상 범위
 
-### Symbol Library Rules
+C++ 규칙은 컷오프 중심이므로 각 릴리스 별칭은 규칙을 활성화합니다.
+컷오프는 해당 파일 계열의 대상 버전보다 최신입니다. 다음 요약
+V6가 아닌 안정적인 대상에 대한 실제 적용 범위를 나열합니다.
 
-일반 parser gate는 target file format이 introduction version보다 오래된 경우
-다음 도입된 node를 제거합니다:
+#### KiCad 10 타겟
 
-| Introduced | Removed heads | 이유 |
+KiCad 10 대상은 대부분 10.0 이후/현재 개발 구성을 제거합니다.
+
+| 친절한 | 구현된 처리 |
+| --- | --- |
+| 기호 라이브러리 | 10.0 기호 대상 이후에 도입된 기본 타원 및 타원 호 기본 요소를 제거합니다. |
+| 개략도 | 10.0 이후의 `locked` 필드, 기본 타원 기본 요소 및 `net_chain` / `net_chains`을 제거합니다. |
+| Board / footprint | 10.0 이후 유형/돌출 모델 블록, 기본 타원 기본 요소, 유전체 주파수 스택업 필드, 넷 체인, 구리 도둑 채우기 모드, 패드 `sim_electrical_type` 및 테이블 셀 `knockout`을 제거하거나 다운그레이드합니다. |
+| 프로젝트 사이드 파일 | V10 접미사에 대해서는 레거시 `.kicad_prl` 또는 라이브러리 테이블 호환성 재작성이 생성되지 않습니다. |
+
+#### KiCad 9 타겟
+
+KiCad 9 대상은 KiCad 10 및 현재 개발 구문을 유지하면서 제거합니다.
+KiCad 9 파일 버전에서 유효한 기능:
+
+| 친절한 | 구현된 처리 |
+| --- | --- |
+| 기호 라이브러리 | 점퍼 핀 그룹, 둥근 직사각형, 기본 타원, 기호 `in_pos_files`, `duplicate_pin_numbers_are_jumpers`, `power` 클래스 플래그, 속성 `show_name` / `do_not_autoplace` 및 글꼴 `face`을 제거합니다. |
+| 개략도 | 둥근 직사각형, 도식 변형, 기본 타원, 네트 체인, 사후 대상 `locked`, `embedded_fonts`, 사용자 정의 본체 스타일, 시트 어셈블리/시뮬레이션 플래그, 기호 `in_pos_files`, 점퍼/전원 클래스 플래그, 글꼴 `face`, 속성 형식 지정 필드 및 루트 `group` 노드를 제거합니다. |
+| Board / footprint | 보호, 점퍼 패드 필드, 구성 요소 클래스 배치 소스, PCB 해치 채우기, 사용자 정의 레이어 수, 둥근 사각형, PCB 포인트 객체, 바코드, 백드릴/사후 가공 필드, PCB 변형, 현재 개발 기능 및 글꼴 `face`을 통해 IPC-4761을 제거하거나 다운그레이드합니다. 레거시 숫자 보드 넷코드를 재구축합니다. 이 대상 범위에 대해 텐팅은 부울 전면/후면 목록에서 레거시 원자로 다운그레이드됩니다. |
+| 프로젝트 사이드 파일 | V9에서는 레거시 `.kicad_prl` 재작성이 생성되지 않습니다. |
+
+#### KiCad 8 대상
+
+KiCad 8 대상은 KiCad 9/10/현재 구문을 제거하고 여러 가지 구문도 정규화합니다.
+late-KiCad-8 개발 양식은 8.0.0 파일 버전으로 돌아갑니다.
+
+| 친절한 | 구현된 처리 |
+| --- | --- |
+| 기호 라이브러리 | V9+ 내장 파일/비공개 필드 및 V10+ 점퍼, 둥근 직사각형 및 타원 구문을 제거합니다. `embedded_fonts`, 글꼴 `face`, 기호/속성 서식 필드를 제거합니다. 레거시 속성 ID를 추가하고 속성 가시성을 `effects`로 이동합니다. 글꼴 스타일과 핀 가시성 부울을 이전 원자 구문으로 변환합니다. |
+| 개략도 | V9+ 테이블, 규칙 영역, 포함된 파일/비공개 필드 및 V10+ 둥근 직사각형, 변형, 본문 스타일 및 타원/네트 체인 구문을 제거합니다. 텍스트 및 시트 시뮬레이션/조립품 플래그, 기호/속성 서식 필드, 글꼴 `face`을 제거합니다. 레거시 속성 ID를 추가하고 속성 가시성을 `effects`로 이동합니다. 글꼴 및 핀 가시성 부울을 이전 원자 구문으로 변환합니다. 루트 `group` 노드를 제거합니다. |
+| Board / footprint | V9+ 테이블, 텐팅, 내장된 파일/글꼴, 구성 요소 클래스, 복잡한 패드 스택, 스택을 통해, 규칙 영역, 보호를 통해, 임의 사용자 레이어 한정자, 사용자 정의 레이어 수, 둥근 사각형, PCB 포인트, 바코드, 백드릴/사후 가공, 변형 및 현재 개발 기능을 제거합니다. 또한 그래픽/트랙 솔더마스크 여백/레이어 필드, 테이블 셀 각도, 텍스트 렌더링 캐시, 텍스트 상자/테이블 셀/레이어 녹아웃, 모델 `hide`, 글꼴 `face`을 제거하고 레거시 숫자 넷코드를 추가합니다. `solder_paste_margin_ratio`의 이름이 `solder_paste_ratio`으로 변경되었습니다. |
+| 프로젝트 사이드 파일 | V8 보드에 대한 레거시 숫자 ID `.kicad_prl` 디스플레이 설정을 생성합니다. |
+
+#### KiCad 7 대상
+
+KiCad 7 대상은 KiCad 8/9/10/현재 구문을 제거하고 추가 파서를 적용합니다.
+PCB 필드, UUID 및 풋프린트 데이터에 대한 호환성 재작성:
+
+| 친절한 | 구현된 처리 |
+| --- | --- |
+| 기호 라이브러리 | V8+ `generator_version`, 내장된 글꼴/파일, V9 비공개 필드, V10 점퍼/둥근/타원 구문, 기호 `exclude_from_sim`, 위치 파일 및 속성 형식 지정 필드, 점퍼/전력 클래스 플래그 및 글꼴 `face`을 제거합니다. 레거시 속성 ID를 추가합니다. 속성 가시성을 `effects`으로 이동합니다. 글꼴 및 가시성 부울을 원자 구문으로 변환합니다. |
+| 개략도 | V8+ `generator_version` 및 `fields_autoplaced`, V9+ 테이블/규칙 영역/포함/전용 필드, V10+ 반올림/변형/본체 스타일 구문, 사후 대상 시뮬레이션 제외 필드, 시트 어셈블리/시뮬레이션 플래그, 기호/속성 형식 지정 필드, 글꼴 `face` 및 루트 `group` 노드를 제거합니다. UUID 원자는 KiCad 6/7 파서에 대해 인용되지 않으며 속성 가시성/ID는 레거시 배치로 다운그레이드됩니다. |
+| Board / footprint | V8+ 생성 개체, 티어드롭, 테이블, 내장 파일/글꼴, 구성 요소 클래스, 패드/비아 스택, 규칙 영역, 보호 및 최신 대상 구문을 제거합니다. 사용자 레이어 유형 한정자를 `user`로 변환합니다. 그래픽/트랙 솔더마스크 필드, 테이블 각도, 렌더링 캐시, 녹아웃 플래그, 모델 `hide`, 그래픽 넷 연결, 그룹 잠긴 필드, 레이어 연결 필드, 풋프린트 점퍼/네트 타이/유닛 필드, 글꼴 `face` 및 레거시 호환되지 않는 풋프린트 속성 원자를 제거합니다. PCB 풋프린트 속성을 다시 `fp_text`로 변환하고, `uuid`/`id`의 이름을 다시 `tstamp`/`id` 레거시 양식으로 바꾸고, 납땜 페이스트 및 열 필드의 이름을 바꾸고, 스트로크를 레거시 `width`로 변환하고, 치수를 표시 가능한 그래픽으로 변환하고, 부울/존재 원자를 다운그레이드하고, 숫자 넷코드를 다시 작성합니다. |
+| 프로젝트 사이드 파일 | V7 보드에 대한 레거시 숫자 ID `.kicad_prl` 디스플레이 설정을 생성합니다. |
+
+### 문서 감지 및 프로젝트 처리
+
+C++ 구현은 주로 루트에서 KiCad 문서 종류를 감지합니다.
+S-표현 헤드:
+
+| 뿌리 머리 | 친절한 |
+| --- | --- |
+| `kicad_symbol_lib` | 기호 라이브러리 |
+| `kicad_sch` | 개략도 |
+| `kicad_pcb` | 판자 |
+| `footprint` | 발자국 |
+| `kicad_dru` | 디자인 규칙 |
+| `kicad_wks`, `drawing_sheet` | 워크시트 |
+
+루트 헤드가 없거나 알 수 없는 경우 파일 확장자로 대체됩니다.
+`.kicad_sym`, `.kicad_sch`, `.kicad_pcb`, `.kicad_mod`, `.kicad_dru` 및
+`.kicad_wks`. 레거시 `.sch`, `.lib`, `.dcm` 및 `.pro`도 다음과 같이 감지됩니다.
+레거시 KiCad 종류는 있지만 해당 레거시 파일 계열에서 직접 변환할 수는 없습니다.
+현재 단계에서 구현되었습니다.
+
+프로젝트 디렉토리나 `.kicad_pro`을 변환할 때 편집 가능한 것만 복사합니다.
+KiCad 프로젝트 입력 및 공통 로컬 3D 모델 파일. 생성된 출력,
+기록/백업 폴더, Gerber, 제작 출력, BOM 및 임시 파일
+건너뜁니다. KiCad 6, 7 및 8 보드 대상의 경우 레거시도 생성됩니다.
+`.kicad_prl` 숫자 `visible_items`을 포함한 로컬 보드 디스플레이 설정, 전체
+`visible_layers` 및 이전 로컬 설정 메타 버전이므로 개체가 변환되었습니다.
+이전 GUI에서는 계속 표시됩니다. KiCad 6 프로젝트의 경우 추가로 대상을 지정합니다.
+`sym-lib-table` / `fp-lib-table`에서 최상위 `version` 노드를 제거하고
+하위 시트 전반에 걸쳐 루트 수준 도식 계층 인스턴스 테이블을 다시 작성합니다.
+
+### 기호 라이브러리 규칙
+
+일반 파서 게이트는 대상 파일 형식이 다음과 같은 경우 도입된 노드를 제거합니다.
+소개 버전보다 오래되었습니다.
+
+| 소개됨 | 제거된 헤드 | 이유 |
 | ---: | --- | --- |
-| 20220126 | `text_box`, `textbox` | Symbol text boxes |
-| 20240529 | `embedded_files`, `embedded_file` | Embedded files |
-| 20241209 | `private` | Private SCH_FIELD flags |
-| 20250324 | `pin_group`, `pin_groups` | Jumper pin groups |
-| 20250829 | `rounded_rectangle`, `roundrect` | Rounded rectangles |
-| 20260508 | `ellipse`, `ellipse_arc` | Native ellipse primitives |
+| 20220126 | `text_box`, `textbox` | 기호 텍스트 상자 |
+| 20240529 | `embedded_files`, `embedded_file` | 삽입된 파일 |
+| 20241209 | `private` | 비공개 SCH_FIELD 플래그 |
+| 20250324 | `pin_group`, `pin_groups` | 점퍼 핀 그룹 |
+| 20250829 | `rounded_rectangle`, `roundrect` | 둥근 직사각형 |
+| 20260508 | `ellipse`, `ellipse_arc` | 기본 타원 프리미티브 |
 
-호환성 rewrite:
+호환성 재작성:
 
-| Target cutoff | Rewrite |
+| 목표 컷오프 | 고쳐 쓰기 |
 | ---: | --- |
-| `< 20231120` | Remove root `generator_version` fields |
-| `< 20241209` | Remove `embedded_fonts`; add legacy property IDs; move property `hide` flags into `effects` |
-| `< 20240108` | Convert font `(bold yes/no)` and `(italic yes/no)` lists to legacy presence atoms |
-| `<= 20241209` | Remove font `face` fields |
-| `< 20241004` | Convert boolean `hide` lists to legacy atoms; flatten `pin_names` / `pin_numbers` hide lists |
-| `< 20251024` | Remove symbol `in_pos_files`; remove property `show_name` and `do_not_autoplace` |
-| `< 20250324` | Remove `duplicate_pin_numbers_are_jumpers` |
-| `< 20250227` | Remove symbol `power` class flags |
+| `< 20231120` | 루트 `generator_version` 필드 제거 |
+| `< 20241209` | `embedded_fonts` 제거; 레거시 속성 ID를 추가합니다. `hide` 속성 ​​플래그를 `effects`로 이동합니다. |
+| `< 20230409` | 기호 라이브러리 `symbol/exclude_from_sim` 시뮬레이션 제외 플래그 제거 |
+| `< 20240108` | 글꼴 `(bold yes/no)` 및 `(italic yes/no)` 목록을 레거시 존재 원자로 변환 |
+| `<= 20241209` | 글꼴 `face` 필드 제거 |
+| `< 20241004` | 부울 `hide` 목록을 레거시 원자로 변환합니다. 평면화 `pin_names` / `pin_numbers` 목록 숨기기 |
+| `<= 20211014` | KiCad 6 표준 속성 ID 추가: `Reference=0`, `Value=1`, `Footprint=2`, `Datasheet=3`, `ki_keywords=4`, `ki_description=5`, `ki_fp_filters=6` |
+| `< 20251024` | `in_pos_files` 기호 제거; `show_name` 및 `do_not_autoplace` 속성을 제거합니다. |
+| `< 20250324` | `duplicate_pin_numbers_are_jumpers` 제거 |
+| `< 20250227` | 기호 `power` 클래스 플래그 제거 |
 
-### Schematic Rules
+### 회로도 규칙
 
-일반 parser gate:
+일반 파서 게이트:
 
-| Introduced | Removed heads | 이유 |
+| 소개됨 | 제거된 헤드 | 이유 |
 | ---: | --- | --- |
-| 20220126 | `text_box`, `textbox` | Schematic text boxes |
-| 20220622 | `simulation_model`, `sim_model` | New simulation model format |
-| 20240101 | `table` | Schematic tables |
-| 20240417 | `rule_area` | Schematic rule areas |
-| 20240620 | `embedded_files`, `embedded_file` | Embedded files |
-| 20241209 | `private` | Private SCH_FIELD flags |
-| 20250829 | `rounded_rectangle`, `roundrect` | Rounded rectangles |
-| 20250922 | `variants`, `variant` | Schematic variants |
-| 20260508 | `ellipse`, `ellipse_arc` | Native ellipse primitives |
-| 20260512 | `net_chain`, `net_chains` | Schematic net chains |
+| 20220126 | `text_box`, `textbox` | 회로도 텍스트 상자 |
+| 20220622 | `simulation_model`, `sim_model` | 새로운 시뮬레이션 모델 형식 |
+| 20240101 | `table` | 회로도 테이블 |
+| 20240417 | `rule_area` | 도식 규칙 영역 |
+| 20240620 | `embedded_files`, `embedded_file` | 삽입된 파일 |
+| 20241209 | `private` | 비공개 SCH_FIELD 플래그 |
+| 20250829 | `rounded_rectangle`, `roundrect` | 둥근 직사각형 |
+| 20250922 | `variants`, `variant` | 회로도 변형 |
+| 20260508 | `ellipse`, `ellipse_arc` | 기본 타원 프리미티브 |
+| 20260512 | `net_chain`, `net_chains` | 도식적인 네트 체인 |
 
-호환성 rewrite:
+호환성 재작성:
 
-| Target cutoff | Rewrite |
+| 목표 컷오프 | 고쳐 쓰기 |
 | ---: | --- |
-| `< 20231120` | Remove `generator_version`; remove `fields_autoplaced` from symbols and sheets |
-| `< 20260326` | Remove schematic `locked` fields introduced after the target |
-| `< 20260306` | Remove `embedded_fonts`; remove sheet `exclude_from_sim`, `in_bom`, `on_board`, `dnp`; remove root schematic `group` nodes |
-| `< 20250827` | Remove `body_styles` and `body_style` |
-| `< 20250114` | Remove text/textbox `exclude_from_sim` |
-| `<= 20230121` | Remove all remaining `exclude_from_sim` |
-| `< 20251024` | Remove symbol `in_pos_files` |
-| `< 20250324` | Remove `duplicate_pin_numbers_are_jumpers` |
-| `< 20250227` | Remove symbol `power` class flags |
-| `< 20241004` | Convert boolean `hide` lists to legacy atoms; flatten pin visibility hide lists |
-| `< 20240108` | Convert font bold/italic boolean lists to legacy atoms |
-| `<= 20250114` | Remove font `face` fields |
-| `< 20241209` | Add legacy property IDs; move property `hide` flags into `effects` |
-| `< 20251028` | Remove property `show_name` and `do_not_autoplace` |
+| `< 20231120` | `generator_version` 제거; 기호 및 시트에서 `fields_autoplaced`을 제거합니다. |
+| `< 20260326` | 대상 뒤에 도입된 회로도 `locked` 필드를 제거합니다. |
+| `< 20260306` | `embedded_fonts` 제거; 시트 제거 `exclude_from_sim`, `in_bom`, `on_board`, `dnp`; 루트 회로도 `group` 노드 제거 |
+| `< 20250827` | `body_styles` 및 `body_style` 제거 |
+| `< 20250114` | 텍스트/텍스트 상자 제거 `exclude_from_sim` |
+| `<= 20230121` | 나머지 `exclude_from_sim`을 모두 제거하세요. |
+| `< 20220822` | 텍스트, 레이블 및 지시문 레이블 `hyperlink` 필드 제거 |
+| `< 20220914` | 배치된 기호 `dnp` 플래그 제거 |
+| `< 20220124` | 루트 `directive_label` 노드의 이름을 다시 `netclass_flag`로 바꿉니다. |
+| `< 20251024` | `in_pos_files` 기호 제거 |
+| `< 20250324` | `duplicate_pin_numbers_are_jumpers` 제거 |
+| `< 20250227` | 기호 `power` 클래스 플래그 제거 |
+| `< 20241004` | 부울 `hide` 목록을 레거시 원자로 변환합니다. 평면화 핀 가시성 목록 숨기기 |
+| `<= 20211123` | 라이브러리 기호 `pin/alternate` 정의 제거 |
+| `< 20240108` | 굵은 글꼴/기울임꼴 부울 목록을 레거시 원자로 변환 |
+| `<= 20250114` | 글꼴 `face` 필드 제거 |
+| `<= 20230121` | KiCad 6/7 파서의 경우 `uuid` 원자를 인용 해제합니다. |
+| `<= 20211123` | 소스 루트 회로도에 이미 인스턴스 데이터가 있는 경우 KiCad 6 루트 수준 `sheet_instances` 및 `symbol_instances`을 생성합니다. 하위 시트에는 루트 인스턴스 테이블이 제공되지 않습니다. |
+| `<= 20211123` | KiCad 6 표준 도식 속성 ID를 추가하고 시트 속성 이름/ID를 `Sheet name=0` 및 `Sheet file=1`로 정규화합니다. |
+| `<= 20211123` | KiCad 6 루트 인스턴스 테이블이 생성된 후 기호 내부 `instances` 블록을 제거합니다. |
+| `< 20241209` | 레거시 속성 ID를 추가합니다. 속성 `hide` 플래그를 `effects`로 이동 |
+| `< 20251028` | `show_name` 및 `do_not_autoplace` 속성을 제거합니다. |
 
-### Board and Footprint Rules
+### 보드 및 면적 규칙
 
-일반 parser gate:
+일반 파서 게이트:
 
-| Introduced | Removed heads | 이유 |
+| 소개됨 | 제거된 헤드 | 이유 |
 | ---: | --- | --- |
-| 20220131 | `gr_text_box`, `fp_text_box`, `text_box`, `textbox` | PCB textboxes |
-| 20220621 | `image` | PCB image objects |
-| 20220818 | `net_tie`, `net_ties` | First-class net-tie storage |
-| 20231007 | `generated` | Generative objects |
-| 20240108 | `teardrop`, `teardrops` | Teardrop parameters |
-| 20240202 | `table` | PCB tables |
-| 20240609 | `tenting` | Tenting keyword |
-| 20240706 | `embedded_files`, `embedded_file`, `embedded_fonts` | Embedded files |
-| 20240928 | `component_class`, `component_classes` | Component classes |
-| 20240929 | `padstack` | Complex padstacks |
-| 20241006 | `via_stack`, `viastack` | Via stacks |
-| 20241009 | `rule_area` | Placement/rule areas |
-| 20250228 | `via_protection`, `covering`, `plugging`, `filling`, `capping` | IPC-4761 via protection |
-| 20250818 | `custom_layer_count`, `custom_layer_counts` | Custom footprint layer counts |
-| 20250829 | `rounded_rectangle`, `roundrect` | Rounded rectangles |
-| 20250901 | `point` | PCB point objects |
-| 20250914 | `barcode`, `pcb_barcode`, `gr_barcode`, `fp_barcode` | PCB barcode objects |
-| 20251101 | `backdrill`, `tertiary_drill`, `front_post_machining`, `back_post_machining` | Backdrill and tertiary drill fields |
-| 20260101 | `variants`, `variant` | PCB variants |
-| 20260410 | `extruded` | Extruded footprint 3D body models |
-| 20260508 | `gr_ellipse`, `gr_ellipse_arc`, `fp_ellipse`, `fp_ellipse_arc` | Native PCB ellipse primitives |
-| 20260511 | `spec_frequency`, `dielectric_model` | Dielectric frequency-dependent stackup fields |
-| 20260512 | `net_chains`, `net_chain` | PCB net chains |
-| 20260513 | `thieving` | Copper thieving zone fill mode |
+| 20220131 | `gr_text_box`, `fp_text_box`, `text_box`, `textbox` | PCB 텍스트 상자 |
+| 20220621 | `image` | PCB 이미지 객체 |
+| 20220818 | `net_tie`, `net_ties` | 최고 수준의 네트 타이 스토리지 |
+| 20231007 | `generated` | 생성 객체 |
+| 20240108 | `teardrop`, `teardrops` | 눈물 매개변수 |
+| 20240202 | `table` | PCB 테이블 |
+| 20240609 | `tenting` | 텐트 키워드 |
+| 20240706 | `embedded_files`, `embedded_file`, `embedded_fonts` | 삽입된 파일 |
+| 20240928 | `component_class`, `component_classes` | 구성요소 클래스 |
+| 20240929 | `padstack` | 복잡한 패드스택 |
+| 20241006 | `via_stack`, `viastack` | 스택을 통해 |
+| 20241009 | `rule_area` | 배치/규칙 영역 |
+| 20250228 | `via_protection`, `covering`, `plugging`, `filling`, `capping` | 보호를 통한 IPC-4761 |
+| 20250818 | `custom_layer_count`, `custom_layer_counts` | 맞춤형 발자국 레이어 수 |
+| 20250829 | `rounded_rectangle`, `roundrect` | 둥근 직사각형 |
+| 20250901 | `point` | PCB 포인트 객체 |
+| 20250914 | `barcode`, `pcb_barcode`, `gr_barcode`, `fp_barcode` | PCB 바코드 개체 |
+| 20251101 | `backdrill`, `tertiary_drill`, `front_post_machining`, `back_post_machining` | 백드릴 및 3차 드릴 필드 |
+| 20260101 | `variants`, `variant` | PCB 변형 |
+| 20260410 | `extruded` | 돌출된 공간 3D 본체 모델 |
+| 20260508 | `gr_ellipse`, `gr_ellipse_arc`, `fp_ellipse`, `fp_ellipse_arc` | 기본 PCB 타원 기본 요소 |
+| 20260511 | `spec_frequency`, `dielectric_model` | 유전체 주파수 의존형 스택업 필드 |
+| 20260512 | `net_chains`, `net_chain` | PCB 네트 체인 |
+| 20260513 | `thieving` | 구리 도둑질 영역 채우기 모드 |
 
-Current development coverage gaps found in local KiCad `10.99.0-1273-gd90e32b6a0`:
+로컬 KiCad `10.99.0-1273-gd90e32b6a0`의 현재 개발 적용 범위 참고 사항:
 
-| Introduced | 누락된 downgrade handling | 참고 |
+| 소개됨 | 손질 | 메모 |
 | ---: | --- | --- |
-| 20260521 | Pad `sim_electrical_type` | Serialized as `(sim_electrical_type source)` or `(sim_electrical_type sink)` on pads; not yet present in `kicad-backport-cplus` feature gates. |
-| 20260603 | Table-cell `knockout` flag | Must be handled contextually for PCB table cells; `knockout` is not safe as a global token gate because other object types also use it. |
+| 20260521 | 구현됨 | `20260521`보다 오래된 대상에 대해 패드 하위 `sim_electrical_type`이(가) 제거되었습니다. |
+| 20260603 | 구현됨 | 테이블 셀 하위 `knockout`은 `20260603`보다 오래된 대상에 대해 상황에 따라 제거됩니다. `knockout`는 다른 객체 유형에서도 사용되므로 전역 토큰 게이트로 사용되지 않습니다. |
 
-호환성 rewrite:
+호환성 재작성:
 
-| Target cutoff | Rewrite |
+| 목표 컷오프 | 고쳐 쓰기 |
 | ---: | --- |
-| `< 20260410` | Remove typed/extruded 3D model blocks by removing `model` nodes that contain `type` |
-| `< 20260513` | Replace copper thieving zone fill mode with polygon fill |
-| `>= 20220225` | Remove obsolete footprint `tedit` fields |
-| `>= 20200628` | Remove obsolete board `visible_elements` settings |
-| `< 20240703` | Convert user-layer type qualifiers `front`, `back`, `auxiliary` to `user` |
-| `< 20241010` | Remove graphic `solder_mask_margin` fields |
-| `< 20241030` | Convert dimension boolean fields to legacy atoms; remove dimension `arrow_direction` |
-| `< 20241009` | Remove zone `placement` fields |
-| `< 20241007` | Remove track `solder_mask_margin` and `solder_mask_layer` fields |
-| `< 20240617` | Remove PCB table cell `angle` |
-| `< 20250228` | Convert tenting front/back boolean lists to legacy atoms; remove IPC-4761 protection fields |
-| `< 20231212` | Convert `locked` and `hide` boolean lists to presence atoms; remove `unlocked`; remove model `hide` |
-| `< 20231014` | Remove `generator_version` |
-| `< 20230924` | Convert `pcbplotparams` `yes/no` booleans to `true/false`; convert shape fill `no` to `none` |
-| `< 20230730` | Remove graphic shape `net` connectivity |
-| `< 20240108` | Remove group `locked`; convert font bold/italic boolean lists to legacy atoms |
-| `< 20230620` | Convert footprint `Reference` and `Value` properties back to `fp_text`; convert `Description` to `ki_description`; map `sheetname`/`sheetfile` to properties |
-| `< 20231231` | Rename scoped `uuid` fields back to `tstamp`; rename group/generated `uuid` back to `id` |
-| `< 20250324` | Remove footprint jumper pad fields |
-| `<= 20221018` | Remove footprint `dnp` attributes; remove pad/via `remove_unused_layers`; convert dimensions to visible text annotations; remove legacy-incompatible `locked`; downgrade free via fields |
-| `< 20250309` | Remove `component_class` from placement rules |
-| `< 20250222` | Convert PCB hatch/reverse-hatch/cross-hatch shape fills to solid fill |
-| `< 20250210` | Remove PCB text box `knockout`; add `filled_areas_thickness no` to cached zone fills where needed |
-| `<= 20241229` | Remove PCB font `face` fields |
-| `< 20251101` | Remove pad/via post-machining fields |
-| `< 20251028` | Rebuild legacy numeric board netcodes and root-level net declarations |
+| `< 20260410` | `type`을 포함하는 `model` 노드를 제거하여 입력/돌출된 3D 모델 블록을 제거합니다. |
+| `< 20260513` | 구리 도둑질 영역 채우기 모드를 다각형 채우기로 교체 |
+| `>= 20220225` | 더 이상 사용되지 않는 공간 `tedit` 필드 제거 |
+| `>= 20200628` | 오래된 보드 `visible_elements` 설정 제거 |
+| `< 20260603` | PCB 테이블 셀 `knockout` 필드 제거 |
+| `< 20240703` | 사용자 계층 유형 한정자 `front`, `back`, `auxiliary`를 `user`로 변환 |
+| `< 20241010` | 그래픽 `solder_mask_margin` 필드 제거 |
+| `< 20241030` | 차원 부울 필드를 레거시 원자로 변환합니다. 측정기준 `arrow_direction` 제거 |
+| `< 20250210` | PCB 텍스트 `render_cache` 제거; 텍스트 상자 제거 `knockout`; 레이어 목록에서 `knockout` 원자를 제거합니다. 필요한 경우 캐시된 영역 채우기에 `filled_areas_thickness no`을 추가하세요. |
+| `< 20241009` | 영역 `placement` 필드 제거 |
+| `<= 20221018` | 영역 `attr` 제거; 패드/구역 제거 `thermal_bridge_angle`; 패드/영역 `thermal_bridge_width`의 이름을 레거시 `thermal_width`로 바꿉니다. |
+| `< 20240108` | `setup/allow_soldermask_bridges_in_footprints` 제거; 그룹 `locked` 제거; `keep_end_layers`, `start_end_only` 및 `zone_layer_connections`와 같은 레이어 연결 필드를 통해 제거 |
+| `< 20241007` | 트랙 `solder_mask_margin` 및 `solder_mask_layer` 필드 제거 |
+| `< 20240617` | PCB 테이블 셀 `angle` 제거 |
+| `< 20260521` | 패드 제거 `sim_electrical_type` |
+| `< 20250228` | 텐팅 전면/후면 부울 목록을 레거시 원자로 변환합니다. IPC-4761 보호 필드 제거 |
+| `< 20231212` | `locked` 및 `hide` 부울 목록을 존재 원자로 변환합니다. `unlocked` 제거; 모델 `hide` 제거 |
+| `< 20231014` | `generator_version` 제거 |
+| `< 20230924` | `pcbplotparams` `yes/no` 부울을 `true/false`로 변환합니다. 도형 채우기 `no`을(를) `none`로 변환 |
+| `< 20230730` | 그래픽 모양 `net` 연결 제거 |
+| `< 20240108` | 굵은 글꼴/기울임꼴 부울 목록을 레거시 원자로 변환 |
+| `< 20230620` | 발자국 `Reference` 및 `Value` 속성을 다시 `fp_text`로 변환합니다. `Description`을 `ki_description`로 변환합니다. `sheetname`/`sheetfile`을 속성에 매핑 |
+| `< 20231231` | 범위가 지정된 `uuid` 필드의 이름을 다시 `tstamp`로 바꿉니다. 그룹 이름을 바꾸거나 생성된 `uuid`을(를) 다시 `id`(으)로 바꿉니다. |
+| `< 20250324` | 발자국 점퍼 패드 필드 제거: `duplicate_pad_numbers_are_jumpers` 및 `jumper_pad_groups` |
+| `<= 20221018` | 풋프린트 `dnp` 속성, `net_tie_pad_groups`, `units` 및 `allow_missing_courtyard`을 제거합니다. 패드 제거/`remove_unused_layers`를 통해; 치수를 눈에 보이는 그래픽으로 변환합니다. 레거시 호환되지 않는 `locked`을 제거합니다. 필드를 통해 무료로 다운그레이드합니다. PCB 그래픽 `stroke` 블록을 레거시 `width` 필드로 변환 |
+| `< 20250309` | 배치 규칙에서 `component_class` 제거 |
+| `< 20250222` | PCB 해치/역해칭/크로스해칭 모양 채우기를 솔리드 채우기로 변환 |
+| `<= 20241229` | PCB 글꼴 `face` 필드 제거 |
+| `< 20251101` | 패드 제거/후가공 필드를 통해 |
+| `< 20251028` | 레거시 숫자 보드 넷코드 및 루트 수준 넷 선언 재구축 |
 
-### Worksheet 및 design rules
+프로젝트 수준 테스트에서 관찰된 KiCad 6 파서 관련 수정 사항:
 
-Worksheet 처리에는 현재 하나의 parser gate가 구현되어 있습니다:
+| 영역 | 수정사항 구현 |
+| --- | --- |
+| PCB 설정 | 8 이전 보드 대상의 경우 `setup/allow_soldermask_bridges_in_footprints`을 제거합니다. |
+| PCB 발자국 | KiCad 6/7 보드 대상에 대한 `net_tie_pad_groups`, `units`, 점퍼 패드 그룹 및 `allow_missing_courtyard` 속성 ​​원자를 제거합니다. |
+| PCB 영역 및 패드 | KiCad 6/7 보드 대상에 대해 영역 `attr`을 제거하고, `thermal_bridge_angle`을 제거하고, `thermal_bridge_width`의 이름을 `thermal_width`로 바꿉니다. |
+| PCB 텍스트 및 테이블 | 이전 파서가 거부하는 텍스트 `render_cache`, 텍스트 상자 `knockout`, 테이블 셀 `knockout` 및 레이어 목록 `knockout`을 제거합니다. |
+| 기호 라이브러리 | `20230409`보다 오래된 대상에 대해 기호 `exclude_from_sim`을 제거하고 KiCad 6 표준 속성 ID를 추가합니다. |
+| 회로도 | 핀 `alternate`을 제거하고, KiCad 6 루트 인스턴스 테이블을 생성하고, 루트 시트 인스턴스 경로를 정규화하고, 시트 속성 이름/ID를 정규화하고, 기호 내부 `instances`을 제거합니다. 배치된 기호 핀 UUID 블록은 KiCad 6이 인스턴스 연결에 사용하기 때문에 의도적으로 유지됩니다. |
+| 프로젝트 사이드 파일 | V6/V7/V8에 대한 숫자 ID `.kicad_prl` 디스플레이 설정을 생성하고 V6에 대한 라이브러리 테이블 최상위 레벨 `version` 노드를 제거합니다. |
 
-| Target cutoff | Rewrite |
+### 워크시트 및 설계 규칙
+
+워크시트 처리에는 현재 하나의 구문 분석기 게이트가 구현되어 있습니다.
+
+| 목표 컷오프 | 고쳐 쓰기 |
 | ---: | --- |
-| `< 20220228` | Remove worksheet `font` blocks |
+| `< 20220228` | 워크시트 `font` 블록 제거 |
 
-Design rules는 감지되고 target version alias도 있지만 downgrade rewrite는
-현재 구현되어 있지 않습니다. 추적한 KiCad 버전 전체에서 file format version macro가
-`20200610`으로 유지되기 때문입니다.
+설계 규칙이 감지되고 대상 버전 별칭이 있지만 다운그레이드는 없습니다.
+파일 형식 버전 매크로가 남아 있기 때문에 현재 재작성이 구현되어 있습니다.
+추적된 KiCad 버전 전반에 걸쳐 `20200610`.
 
-### 경고 및 보고서 의미
+### 경고 및 보고 의미
 
-tree를 변경하는 구현된 removal 또는 compatibility rewrite는 항상
-warning을 추가합니다. 일반 feature gate는 제거된 node 수와
-introduction version을 보고합니다. report에는 path, detected kind, source version,
-target version, changed flag, warnings가 포함됩니다.
+트리를 변경하는 모든 구현된 제거 또는 호환성 재작성은
+경고. 일반 기능 게이트는 제거된 노드 수와
+소개 버전. 보고서에는 경로, 감지된 종류, 소스 버전,
+대상 버전, 변경된 플래그 및 경고.
 
-## 변환기 요구사항
+## 변환기 요구 사항
 
 ### 읽기 경로
 
-- source file의 `version`을 보존하고 current KiCad format으로만 해석하지 않습니다.
-- 오래된 file을 위한 compatibility alias를 지원합니다:
-  - `page` to `paper`
-  - Legacy overbar `~...~` to `~{...}`
-  - Old `start/end` text box format to new `at/size`
-  - Old `id` to `uuid`
-  - Old boolean / presence-token formats to explicit booleans
-- future format을 감지하고 명확한 error 또는 정의된 downgrade strategy를 반환합니다.
+- 소스 파일 `version`을 보존합니다. 현재 상황으로만 해석하지 마세요.
+KiCad 형식.
+- 이전 파일에 대한 호환성 별칭 지원:
+  - `page` ~ `paper`
+  - 레거시 오버바 `~...~` ~ `~{...}`
+  - 이전 `start/end` 텍스트 상자 형식을 새 `at/size`로
+  - 이전 `id`에서 `uuid`까지
+  - 명시적 부울에 대한 이전 부울/존재 토큰 형식
+- 향후 형식을 감지하고 명확한 오류 또는 정의된 다운그레이드 전략을 반환합니다.
 
 ### 쓰기 경로
 
-- `--target-version` must do more than change the top-level version number. It
-  must prune or rewrite semantics according to the requested target.
-- Each target version needs feature gates:
-  - KiCad 6 must not write V7 simulation model fields, DNP, or post-V6 text box
-    structures.
-  - KiCad 7 must not write structures that only became stable after V8
-    `generator_version` cleanup.
-  - KiCad 8 must not write V9 embedded files, component classes, or complex
-    padstacks.
-  - KiCad 9 must not write V10 variants, barcode, backdrill, split via type, and
-    similar constructs.
-  - KiCad 10 must not write current-development extruded body metadata, native
-    ellipses, dielectric frequency fields, net chains, copper thieving, pad
-    simulation electrical types, or table-cell knockout flags.
-- lossy downgrade는 silent deletion 대신 warning 또는 sidecar metadata를 생성해야 합니다.
+- `--target-version`은 최상위 버전 번호를 변경하는 것 이상의 작업을 수행해야 합니다. 그것
+요청된 대상에 따라 의미 체계를 정리하거나 다시 작성해야 합니다.
+- 각 대상 버전에는 기능 게이트가 필요합니다.
+  - KiCad 6은 V7 시뮬레이션 모델 필드, DNP 또는 V6 이후 텍스트 상자를 작성해서는 안 됩니다.
+구조.
+  - KiCad 7은 V8 이후에만 안정화된 구조를 작성해서는 안 됩니다.
+`generator_version` 정리.
+  - KiCad 8은 V9 임베디드 파일, 구성요소 클래스 또는 컴플렉스를 작성해서는 안 됩니다.
+패드 스택.
+  - KiCad 9는 V10 변형, 바코드, 백드릴, 분할 유형을 작성해서는 안 됩니다.
+비슷한 구조물.
+  - KiCad 10은 현재 개발 중인 압출 본체 메타데이터를 작성해서는 안 됩니다.
+타원, 유전 주파수 장, 네트 체인, 구리 도둑질, 패드
+시뮬레이션 전기 유형 또는 테이블 셀 녹아웃 플래그.
+- 손실이 있는 다운그레이드는 자동 대신 경고 또는 사이드카 메타데이터를 생성해야 합니다.
+삭제.
 
 ### 테스트 경로
 
-- Build minimal fixtures for KiCad 6, 7, 8, 9, and 10:
-  - Symbol library
-  - Schematic
-  - Board
-  - Footprint
-  - Worksheet
-  - Design rules
-- Each cross-version conversion should verify:
-  - Source version is read correctly
-  - Target version number is written correctly
-  - Disallowed tokens are removed or downgraded
-  - Key semantics are preserved
-  - Warnings cover lossy conversions
+- KiCad 6, 7, 8, 9 및 10용 최소 설비를 구축하십시오.
+  - 기호 라이브러리
+  - 개략도
+  - 판자
+  - 발자국
+  - 워크시트
+  - 디자인 규칙
+- 각 버전 간 전환은 다음을 확인해야 합니다.
+  - 소스 버전이 올바르게 읽혔습니다.
+  - 대상 버전 번호가 올바르게 기록되었습니다.
+  - 허용되지 않는 토큰은 제거되거나 다운그레이드됩니다.
+  - 주요 의미가 보존됩니다.
+  - 경고에는 손실이 있는 변환이 포함됩니다.
 
-## 유지보수 참고사항
+## 유지보수 노트
 
-향후 버전 차이를 추가할 때:
+향후 버전 차이를 추가하는 경우:
 
-1. Add or update the version matrix first.
-2. Add a new interval section such as `10.0 to 11.0` or
-   `10.99 / current to 11.99 / current`.
-3. Keep development-branch findings separate from released stable tags until the
-   corresponding KiCad release is tagged.
-4. Update the backport target summary when a new source version introduces
-   constructs that affect existing downgrade targets.
-5. Track `.kicad_pro` JSON schema migrations in a separate document.
+1. 먼저 버전 매트릭스를 추가하거나 업데이트하세요.
+2. `10.0 to 11.0`과 같은 새로운 간격 섹션을 추가하거나
+`10.99 / current to 11.99 / current`.
+3. 개발 분기 결과를 출시된 안정 태그와 별도로 보관하세요.
+해당 KiCad 릴리스가 태그되어 있습니다.
+4. 새 소스 버전이 도입되면 백포트 대상 요약을 업데이트합니다.
+기존 다운그레이드 대상에 영향을 미치는 구성입니다.
+5. `.kicad_pro` JSON 스키마 마이그레이션을 별도의 문서로 추적합니다.

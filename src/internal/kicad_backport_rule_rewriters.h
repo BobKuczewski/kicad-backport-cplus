@@ -88,9 +88,16 @@ int removeNodesContainingChild( SEXPR::NODE* aRoot, const std::string& aParentHe
                                 const std::string& aChildHead );
 int replaceAtomValuesInParents( SEXPR::NODE* aRoot, const std::set<std::string>& aParents,
                                 const std::string& aFrom, const std::string& aTo );
+int unquoteAtomsInHeadedLists( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads,
+                               size_t aAtomIndex );
+int ensureLegacySchematicSymbolInstances( SEXPR::NODE* aRoot );
+int removePlacedSymbolPinUuidBlocks( SEXPR::NODE* aRoot );
+int downgradePCBStrokeToLegacyWidth( SEXPR::NODE* aRoot );
 
 // KiCad-specific equivalent downgrades.
 int ensureLegacyPropertyIds( SEXPR::NODE* aRoot );
+int ensureKiCad6StandardPropertyIds( SEXPR::NODE* aRoot );
+int normalizeKiCad6SheetProperties( SEXPR::NODE* aRoot );
 int movePropertyHideToEffects( SEXPR::NODE* aRoot );
 int downgradeTentingToLegacyAtoms( SEXPR::NODE* aRoot );
 int downgradeBooleanPresenceNodes( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads );

@@ -15,9 +15,18 @@ std::string FormatReportsJson( const std::vector<FILE_REPORT>& aReports )
     for( size_t i = 0; i < aReports.size(); ++i )
     {
         const FILE_REPORT& report = aReports[i];
+        std::string inputPath = report.InputPath.empty() ? report.Path : report.InputPath;
+        std::string outputPath = report.OutputPath.empty() ? report.Path : report.OutputPath;
+        std::string sourceKind = report.SourceKind.empty() ? report.Kind : report.SourceKind;
+        std::string targetKind = report.TargetKind.empty() ? report.Kind : report.TargetKind;
+
         out << "  {\n";
         out << "    \"path\": \"" << JsonEscape( report.Path ) << "\",\n";
+        out << "    \"input_path\": \"" << JsonEscape( inputPath ) << "\",\n";
+        out << "    \"output_path\": \"" << JsonEscape( outputPath ) << "\",\n";
         out << "    \"kind\": \"" << JsonEscape( report.Kind ) << "\",\n";
+        out << "    \"source_kind\": \"" << JsonEscape( sourceKind ) << "\",\n";
+        out << "    \"target_kind\": \"" << JsonEscape( targetKind ) << "\",\n";
         out << "    \"source_version\": \"" << JsonEscape( report.SourceVersion ) << "\",\n";
 
         if( !report.TargetVersion.empty() )

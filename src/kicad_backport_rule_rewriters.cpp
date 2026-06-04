@@ -413,6 +413,188 @@ std::vector<std::unique_ptr<SEXPR::NODE>> graphicsFromModernDimension(
     return graphics;
 }
 
+
+std::string childAtomOrEmpty( SEXPR::NODE* aNode, const std::string& aHead,
+                              size_t aIndex = 1 )
+{
+    SEXPR::NODE* child = aNode ? aNode->ChildList( aHead ) : nullptr;
+    return child ? child->AtomAt( aIndex ) : "";
+}
+
+
+std::string schematicPropertyValue( SEXPR::NODE* aSymbol, const std::string& aName )
+{
+    if( !aSymbol )
+        return "";
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aSymbol->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "property"
+            && child->AtomAt( 1 ) == aName )
+        {
+            return child->AtomAt( 2 );
+        }
+    }
+
+    return "";
+}
+
+
+SEXPR::NODE* firstProjectInstancePath( SEXPR::NODE* aSymbol )
+{
+    SEXPR::NODE* instances = aSymbol ? aSymbol->ChildList( "instances" ) : nullptr;
+
+    if( !instances )
+        return nullptr;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : instances->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "project" )
+        {
+            SEXPR::NODE* path = child->ChildList( "path" );
+
+            if( path && !path->AtomAtView( 1 ).empty() )
+                return path;
+        }
+    }
+
+    return nullptr;
+}
+
+
+std::string normalizeLegacySheetPath( std::string aPath, const std::string& aRootUuid )
+{
+    if( aPath.empty() )
+        return "/";
+
+    if( aPath.front() != '/' )
+        aPath = "/" + aPath;
+
+    if( !aRootUuid.empty() )
+    {
+        std::string prefix = "/" + aRootUuid;
+
+        if( aPath == prefix )
+            return "/";
+
+        if( aPath.size() > prefix.size() && aPath.compare( 0, prefix.size(), prefix ) == 0
+            && aPath[prefix.size()] == '/' )
+        {
+            return aPath.substr( prefix.size() );
+        }
+    }
+
+    return aPath;
+}
+
+
+std::string appendLegacyInstanceUuid( std::string aSheetPath, const std::string& aUuid )
+{
+    if( aUuid.empty() )
+        return aSheetPath.empty() ? "/" : aSheetPath;
+
+    if( aSheetPath.empty() )
+        aSheetPath = "/";
+
+    if( aSheetPath.front() != '/' )
+        aSheetPath = "/" + aSheetPath;
+
+    std::string suffix = "/" + aUuid;
+
+    if( aSheetPath.size() >= suffix.size()
+        && aSheetPath.compare( aSheetPath.size() - suffix.size(), suffix.size(), suffix ) == 0 )
+    {
+        return aSheetPath;
+    }
+
+    if( aSheetPath == "/" )
+        return "/" + aUuid;
+
+    return aSheetPath + "/" + aUuid;
+}
+
+
+std::unique_ptr<SEXPR::NODE> sheetInstancePathNode( SEXPR::NODE* aSheet,
+                                                    const std::string& aRootUuid )
+{
+    SEXPR::NODE* sourcePath = firstProjectInstancePath( aSheet );
+    std::string uuid = childAtomOrEmpty( aSheet, "uuid" );
+    std::string sheetPath = normalizeLegacySheetPath( sourcePath ? sourcePath->AtomAt( 1 ) : "",
+                                                      aRootUuid );
+    std::string path = appendLegacyInstanceUuid( sheetPath, uuid );
+    std::string page = sourcePath ? childAtomOrEmpty( sourcePath, "page" ) : "";
+
+    std::unique_ptr<SEXPR::NODE> node = listNode( "path" );
+    node->Children.push_back( SEXPR::NODE::MakeAtom( path, true ) );
+
+    if( !page.empty() )
+    {
+        std::unique_ptr<SEXPR::NODE> pageNode = listNode( "page" );
+        pageNode->Children.push_back( SEXPR::NODE::MakeAtom( page, true ) );
+        node->Children.push_back( std::move( pageNode ) );
+    }
+
+    return node;
+}
+
+
+std::unique_ptr<SEXPR::NODE> symbolInstancePathNode( SEXPR::NODE* aSymbol,
+                                                     const std::string& aRootUuid )
+{
+    SEXPR::NODE* sourcePath = firstProjectInstancePath( aSymbol );
+    std::string path = sourcePath ? sourcePath->AtomAt( 1 ) : childAtomOrEmpty( aSymbol, "uuid" );
+    std::string uuid = childAtomOrEmpty( aSymbol, "uuid" );
+
+    if( path.empty() )
+        return nullptr;
+
+    if( path.front() != '/' )
+        path = "/" + path;
+
+    path = appendLegacyInstanceUuid( normalizeLegacySheetPath( path, aRootUuid ), uuid );
+
+    std::string reference = sourcePath ? childAtomOrEmpty( sourcePath, "reference" ) : "";
+    std::string unit = sourcePath ? childAtomOrEmpty( sourcePath, "unit" ) : "";
+    std::string value = sourcePath ? childAtomOrEmpty( sourcePath, "value" ) : "";
+    std::string footprint = sourcePath ? childAtomOrEmpty( sourcePath, "footprint" ) : "";
+
+    if( reference.empty() )
+        reference = schematicPropertyValue( aSymbol, "Reference" );
+
+    if( unit.empty() )
+        unit = childAtomOrEmpty( aSymbol, "unit" );
+
+    if( unit.empty() )
+        unit = "1";
+
+    if( value.empty() )
+        value = schematicPropertyValue( aSymbol, "Value" );
+
+    if( footprint.empty() )
+        footprint = schematicPropertyValue( aSymbol, "Footprint" );
+
+    std::unique_ptr<SEXPR::NODE> node = listNode( "path" );
+    node->Children.push_back( SEXPR::NODE::MakeAtom( path, true ) );
+
+    std::unique_ptr<SEXPR::NODE> referenceNode = listNode( "reference" );
+    referenceNode->Children.push_back( SEXPR::NODE::MakeAtom( reference, true ) );
+    node->Children.push_back( std::move( referenceNode ) );
+
+    std::unique_ptr<SEXPR::NODE> unitNode = listNode( "unit" );
+    unitNode->Children.push_back( SEXPR::NODE::MakeAtom( unit ) );
+    node->Children.push_back( std::move( unitNode ) );
+
+    std::unique_ptr<SEXPR::NODE> valueNode = listNode( "value" );
+    valueNode->Children.push_back( SEXPR::NODE::MakeAtom( value, true ) );
+    node->Children.push_back( std::move( valueNode ) );
+
+    std::unique_ptr<SEXPR::NODE> footprintNode = listNode( "footprint" );
+    footprintNode->Children.push_back( SEXPR::NODE::MakeAtom( footprint, true ) );
+    node->Children.push_back( std::move( footprintNode ) );
+
+    return node;
+}
+
 } // namespace
 
 // Removes any subtree whose head token is not accepted by the target parser.
@@ -1195,6 +1377,118 @@ int ensureLegacyPropertyIds( SEXPR::NODE* aRoot )
 }
 
 
+int ensureKiCad6StandardPropertyIds( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "symbol" || aRoot->HeadView() == "sheet" )
+    {
+        static const std::map<std::string, int> standardIds = {
+            { "Reference", 0 },
+            { "Value", 1 },
+            { "Footprint", 2 },
+            { "Datasheet", 3 },
+            { "ki_keywords", 4 },
+            { "ki_description", 5 },
+            { "ki_fp_filters", 6 },
+        };
+
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( !child || child->IsAtom() || child->HeadView() != "property"
+                || child->ChildList( "id" ) )
+            {
+                continue;
+            }
+
+            auto found = standardIds.find( child->AtomAt( 1 ) );
+
+            if( found == standardIds.end() )
+                continue;
+
+            std::unique_ptr<SEXPR::NODE> id = listNode( "id" );
+            id->Children.push_back( SEXPR::NODE::MakeAtom( std::to_string( found->second ) ) );
+
+            size_t insertAt = std::min<size_t>( 3, child->Children.size() );
+            child->Children.insert( child->Children.begin() + insertAt, std::move( id ) );
+            ++changed;
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += ensureKiCad6StandardPropertyIds( child.get() );
+
+    return changed;
+}
+
+
+int normalizeKiCad6SheetProperties( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "sheet" )
+    {
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( !child || child->IsAtom() || child->HeadView() != "property" )
+                continue;
+
+            std::string name = child->AtomAt( 1 );
+            int legacyId = -1;
+            const char* legacyName = nullptr;
+
+            if( name == "Sheetname" || name == "Sheet name" )
+            {
+                legacyName = "Sheet name";
+                legacyId = 0;
+            }
+            else if( name == "Sheetfile" || name == "Sheet file" )
+            {
+                legacyName = "Sheet file";
+                legacyId = 1;
+            }
+
+            if( !legacyName )
+                continue;
+
+            if( name != legacyName && child->SetAtomAt( 1, legacyName, true ) )
+                ++changed;
+
+            SEXPR::NODE* id = child->ChildList( "id" );
+
+            if( id )
+            {
+                if( id->AtomAt( 1 ) != std::to_string( legacyId )
+                    && id->SetAtomAt( 1, std::to_string( legacyId ), false ) )
+                {
+                    ++changed;
+                }
+            }
+            else
+            {
+                std::unique_ptr<SEXPR::NODE> idNode = listNode( "id" );
+                idNode->Children.push_back( SEXPR::NODE::MakeAtom( std::to_string( legacyId ) ) );
+
+                size_t insertAt = std::min<size_t>( 3, child->Children.size() );
+                child->Children.insert( child->Children.begin() + insertAt, std::move( idNode ) );
+                ++changed;
+            }
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += normalizeKiCad6SheetProperties( child.get() );
+
+    return changed;
+}
+
+
 // KiCad 8/7 store property visibility inside the effects list.
 int movePropertyHideToEffects( SEXPR::NODE* aRoot )
 {
@@ -1961,6 +2255,198 @@ int replaceAtomValuesInParents( SEXPR::NODE* aRoot, const std::set<std::string>&
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         changed += replaceAtomValuesInParents( child.get(), aParents, aFrom, aTo );
+
+    return changed;
+}
+
+
+int unquoteAtomsInHeadedLists( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads,
+                               size_t aAtomIndex )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( containsString( aHeads, aRoot->HeadView() ) && aAtomIndex < aRoot->Children.size()
+        && aRoot->Children[aAtomIndex] && aRoot->Children[aAtomIndex]->IsAtom()
+        && aRoot->Children[aAtomIndex]->Quoted )
+    {
+        aRoot->Children[aAtomIndex]->Quoted = false;
+        ++changed;
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += unquoteAtomsInHeadedLists( child.get(), aHeads, aAtomIndex );
+
+    return changed;
+}
+
+
+int ensureLegacySchematicSymbolInstances( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "kicad_sch" )
+        return 0;
+
+    if( !aRoot->ChildList( "sheet_instances" ) )
+        return 0;
+
+    std::string rootUuid = childAtomOrEmpty( aRoot, "uuid" );
+    std::unique_ptr<SEXPR::NODE> sheetInstances = listNode( "sheet_instances" );
+
+    std::unique_ptr<SEXPR::NODE> rootPath = listNode( "path" );
+    rootPath->Children.push_back( SEXPR::NODE::MakeAtom( "/", true ) );
+    std::unique_ptr<SEXPR::NODE> rootPage = listNode( "page" );
+    rootPage->Children.push_back( SEXPR::NODE::MakeAtom( "1", true ) );
+    rootPath->Children.push_back( std::move( rootPage ) );
+    sheetInstances->Children.push_back( std::move( rootPath ) );
+
+    std::vector<std::unique_ptr<SEXPR::NODE>> paths;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "symbol"
+            && child->ChildList( "lib_id" ) )
+        {
+            std::unique_ptr<SEXPR::NODE> path = symbolInstancePathNode( child.get(), rootUuid );
+
+            if( path )
+                paths.push_back( std::move( path ) );
+        }
+        else if( child && !child->IsAtom() && child->HeadView() == "sheet" )
+        {
+            sheetInstances->Children.push_back( sheetInstancePathNode( child.get(), rootUuid ) );
+        }
+    }
+
+    if( paths.empty() )
+        return 0;
+
+    std::unique_ptr<SEXPR::NODE> symbolInstances = listNode( "symbol_instances" );
+
+    for( std::unique_ptr<SEXPR::NODE>& path : paths )
+        symbolInstances->Children.push_back( std::move( path ) );
+
+    int changed = 1;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    kept.reserve( aRoot->Children.size() + 1 );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "sheet_instances" )
+        {
+            ++changed;
+            continue;
+        }
+
+        if( child && !child->IsAtom() && child->HeadView() == "symbol_instances" )
+        {
+            ++changed;
+            continue;
+        }
+
+        kept.push_back( std::move( child ) );
+    }
+
+    kept.push_back( std::move( sheetInstances ) );
+    kept.push_back( std::move( symbolInstances ) );
+
+    aRoot->Children = std::move( kept );
+    return changed;
+}
+
+
+int removePlacedSymbolPinUuidBlocks( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int removed = 0;
+
+    if( aRoot->HeadView() == "symbol" )
+    {
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+        kept.reserve( aRoot->Children.size() );
+
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( child && !child->IsAtom() && child->HeadView() == "pin"
+                && child->Children.size() == 3 && child->Children[1]
+                && child->Children[1]->IsAtom() && child->Children[2]
+                && !child->Children[2]->IsAtom() && child->Children[2]->HeadView() == "uuid" )
+            {
+                ++removed;
+                continue;
+            }
+
+            kept.push_back( std::move( child ) );
+        }
+
+        aRoot->Children = std::move( kept );
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        removed += removePlacedSymbolPinUuidBlocks( child.get() );
+
+    return removed;
+}
+
+
+std::unique_ptr<SEXPR::NODE> legacyWidthFromStroke( SEXPR::NODE* aStroke )
+{
+    if( !aStroke )
+        return nullptr;
+
+    SEXPR::NODE* strokeWidth = aStroke->ChildList( "width" );
+
+    if( !strokeWidth || strokeWidth->AtomAtView( 1 ).empty() )
+        return nullptr;
+
+    std::unique_ptr<SEXPR::NODE> width = SEXPR::NODE::MakeList();
+    width->Children.push_back( SEXPR::NODE::MakeAtom( "width" ) );
+    width->Children.push_back( SEXPR::NODE::MakeAtom( strokeWidth->AtomAt( 1 ) ) );
+    return width;
+}
+
+
+int downgradePCBStrokeToLegacyWidth( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    static const std::set<std::string> graphicParents = {
+        "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_curve",
+        "fp_line", "fp_arc", "fp_circle", "fp_rect", "fp_poly", "fp_curve"
+    };
+
+    int changed = 0;
+
+    if( containsString( graphicParents, aRoot->HeadView() ) )
+    {
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+        kept.reserve( aRoot->Children.size() );
+
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( child && !child->IsAtom() && child->HeadView() == "stroke" )
+            {
+                std::unique_ptr<SEXPR::NODE> width = legacyWidthFromStroke( child.get() );
+
+                if( width )
+                    kept.push_back( std::move( width ) );
+
+                ++changed;
+                continue;
+            }
+
+            kept.push_back( std::move( child ) );
+        }
+
+        aRoot->Children = std::move( kept );
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += downgradePCBStrokeToLegacyWidth( child.get() );
 
     return changed;
 }
