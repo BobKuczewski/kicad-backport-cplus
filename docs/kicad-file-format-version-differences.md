@@ -4,7 +4,7 @@ This document tracks KiCad file format version differences used by the backport
 converter. It is organized so newer stable or development versions can be added
 without renaming the file.
 
-Last updated: 2026-05-29.
+Last updated: 2026-06-04.
 
 ## Sources and Method
 
@@ -12,17 +12,25 @@ Sources reviewed:
 
 - KiCad official GitLab tags and source files.
 - Local KiCad checkout at `E:/WORKS/MY/kicadProject/kicad`.
-- Local KiCad `master` checkout `10.99.0-1153-g8c1d374f29`.
+- Local refs and tags: `origin/4.0`, `4.0.0`, `origin/5.0`, `origin/5.1`,
+  `5.0.0`, `5.1.0`, `6.0.0`, `7.0.0`, `8.0.0`, `9.0.0`, `10.0.0`,
+  and `origin/10.0`.
+- Local KiCad `master`, used only to identify post-10.0 development branch
+  boundaries.
 - `kicad-backport-cplus` implementation, especially:
   - `src/kicad_backport_versions.cpp`
   - `src/kicad_backport_rules.cpp`
   - `src/kicad_backport_rule_rewriters.cpp`
   - `src/kicad_backport.cpp`
 - Version header files:
+  - `pcbnew/kicad_plugin.h` for KiCad 4/5 PCB formats.
+  - `pcbnew/plugins/kicad/pcb_plugin.h` for KiCad 6/7 PCB formats.
   - `eeschema/sch_file_versions.h`
   - `pcbnew/pcb_io/kicad_sexpr/pcb_io_kicad_sexpr.h`
   - `include/drawing_sheet/ds_file_versions.h`
   - `pcbnew/drc/drc_rule_parser.h`
+  - `eeschema/general.h` and `eeschema/sch_legacy_plugin.h` for KiCad 4/5
+    legacy schematic formats.
 
 Version numbers are taken from the active KiCad source macros:
 
@@ -41,6 +49,20 @@ Notes:
 - `.kicad_pro` is a JSON project file and uses settings/schema migration instead
   of these S-expression date version macros. Project JSON schema differences
   should be tracked separately.
+- KiCad 4/5 schematics and symbol libraries are legacy `.sch`, `.lib`, and
+  `.dcm` files, not `.kicad_sch` or `.kicad_sym`.
+
+## Major File-Family Matrix
+
+| KiCad major version | Project | Schematic | Symbol library | PCB / footprint | Worksheet | Design rules | Key point |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 4.0 | Legacy `.pro` | Legacy `.sch`, `EESCHEMA_VERSION=2` | `.lib` `EESchema-LIBRARY Version 2.3`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S-expression, version `4` | Legacy drawing sheet | No standalone `.kicad_dru` | PCB was already S-expression; schematic and symbol libraries were still legacy. |
+| 5.0 / 5.1 | Legacy `.pro` | Legacy `.sch`, `EESCHEMA_VERSION=4` | Commonly `.lib` `Version 2.4`, `.dcm` | `.kicad_pcb` / `.kicad_mod` S-expression, version `20171130` | Legacy drawing sheet | No standalone `.kicad_dru` | PCB added custom pads, multi-layer keepouts, and 3D model offset changes; schematic remained legacy. |
+| 6.0 | JSON `.kicad_pro`, `.kicad_prl` | `.kicad_sch` `20211123` | `.kicad_sym` `20211014` | `20211014` | `.kicad_wks` `20210606` | `.kicad_dru` `20200610` | New schematic and symbol S-expression formats. |
+| 7.0 | JSON `.kicad_pro` | `.kicad_sch` `20230121` | `.kicad_sym` `20220914` | `20221018` | `.kicad_wks` `20220228` | `20200610` | Text boxes, fonts, DNP, simulation model changes, net ties, images, teardrop keywords. |
+| 8.0 | JSON `.kicad_pro` | `.kicad_sch` `20231120` | `.kicad_sym` `20231120` | `20240108` | `.kicad_wks` `20231118` | `20200610` | `generator_version`, V8 cleanup, PCB fields, generated objects, UUID normalization. |
+| 9.0 | JSON `.kicad_pro` | `.kicad_sch` `20250114` | `.kicad_sym` `20241209` | `20241229` | `.kicad_wks` `20231118` | `20200610` | Embedded files, tables, rule areas, component classes, padstacks, via stacks, arbitrary user layers. |
+| 10.0 | JSON `.kicad_pro` | `.kicad_sch` `20260306` | `.kicad_sym` `20251024` | `20260206` | `.kicad_wks` `20231118` | `20200610` | Variants, jumper pads, barcodes, via protection, backdrill, split via types, stopped writing netcodes. |
 
 ## Stable Version Matrix
 
@@ -52,19 +74,68 @@ Notes:
 | `9.0.0` | 20241209 | 20250114 | 20241229 | 20231118 | 20200610 |
 | `10.0.0` | 20251024 | 20260306 | 20260206 | 20231118 | 20200610 |
 
+## KiCad 4/5 Legacy Boundary
+
+KiCad 4 and 5 are not just older S-expression versions for schematic data. They
+use a different schematic and symbol-library file family:
+
+| Area | KiCad 4.0 | KiCad 5.0 / 5.1 |
+| --- | --- | --- |
+| Schematic header | `EESchema Schematic File Version 2` | `EESchema Schematic File Version 4` |
+| Schematic macro | `EESCHEMA_VERSION 2` | `EESCHEMA_VERSION 4` |
+| Symbol library header | Commonly `EESchema-LIBRARY Version 2.3` | Commonly `EESchema-LIBRARY Version 2.4` |
+| PCB version | `4` | `20171130` |
+
+KiCad 5 PCB/footprint version points before the KiCad 6 development line:
+
+| Version | Change |
+| ---: | --- |
+| 20160815 | Differential pair settings per net class |
+| 20170123 | `EDA_TEXT` refactor; moved `hide` |
+| 20170920 | Long pad names and custom pad shape |
+| 20170922 | Keepout zones can exist on multiple layers |
+| 20171114 | Save 3D model offset in mm instead of inches |
+| 20171125 | Locked/unlocked footprint text |
+| 20171130 | 3D model offset written using the `offset` parameter |
+
+Backport implications:
+
+- KiCad 4/5 schematic targets require a legacy `.sch` writer, not just a
+  `.kicad_sch` version rewrite.
+- KiCad 4/5 symbol targets require legacy `.lib` / `.dcm` output or an explicit
+  lossy/unimplemented warning.
+- KiCad 4 board targets use version `4`; KiCad 5 board targets use `20171130`.
+- V6+ UUIDs, text boxes, embedded files, variants, tables, rule areas, component
+  classes, padstacks, via stacks, backdrill, and similar structures cannot be
+  preserved directly in V4/V5 files.
+
 ## Current Development Version Matrix
 
-The reviewed KiCad `master` branch reports semantic version `10.99.0-unknown`
-and uses these S-expression file format versions:
+The reviewed KiCad `master` branch has already moved into 11.0 development.
+These findings are post-10.0 development items and must not be labeled as KiCad
+10.0 stable format support:
 
-| File type | 10.99/current version | Notes |
+| File type | Current development version | Notes |
 | --- | ---: | --- |
-| Board `.kicad_pcb` | `20260513` | Copper thieving zone fill mode |
-| Footprint `.kicad_mod` | `20260513` | Footprints use the PCB S-expression version |
+| Board `.kicad_pcb` | `20260603` | Knockout flag on table cells |
+| Footprint `.kicad_mod` | `20260603` | Footprints use the PCB S-expression version |
 | Schematic `.kicad_sch` | `20260512` | Net chains |
 | Symbol library `.kicad_sym` | `20260508` | Native ellipse primitive |
 | Worksheet `.kicad_wks` | `20231118` | Generator version / KiCad 8 cleanup |
-| Design rules `.kicad_dru` | `20200610` | No 10.99-specific version bump found |
+| Design rules `.kicad_dru` | `20200610` | No current-development-specific version bump found |
+
+Post-10.0 development version steps found so far:
+
+| Version | File type | Change |
+| ---: | --- | --- |
+| 20260410 | Board / footprint | Extruded 3D body |
+| 20260508 | Board / footprint | Native PCB ellipse and ellipse-arc primitives |
+| 20260508 | Schematic / symbol | Native schematic/symbol ellipse and ellipse-arc primitives |
+| 20260511 | Board | Dielectric frequency-dependent stackup models |
+| 20260512 | Board / schematic | Net chains |
+| 20260513 | Board | Copper thieving zone fill mode |
+| 20260521 | Board / footprint | Pad simulation electrical types |
+| 20260603 | Board / footprint | Knockout flag on table cells |
 
 ## 6.0 to 7.0
 
@@ -297,10 +368,10 @@ No worksheet version bump; remains `20231118`.
 
 No worksheet version bump; remains `20231118`.
 
-## 10.0 to 10.99 / Current Development
+## 10.0 to Current Development
 
-Compared with KiCad 10 target files, the reviewed 10.99 branch adds these newer
-format steps:
+Compared with KiCad 10 target files, the reviewed current development branch
+adds these newer format steps:
 
 | Version | File type | Difference |
 | ---: | --- | --- |
@@ -311,15 +382,17 @@ format steps:
 | 20260512 | Board | Net chain aggregation block |
 | 20260512 | Schematic | Net chain records |
 | 20260513 | Board | Copper thieving zone fill mode |
+| 20260521 | Board / footprint | Pad simulation electrical type, serialized as `sim_electrical_type` on pads |
+| 20260603 | Board / footprint | Table-cell `knockout` flag |
 
 ## Backport Target Summary from Current Development Files
 
 Compared with older supported targets, 10.99 introduces or retains newer
 constructs that must be removed, simplified, or renamed when backporting:
 
-| Target | Board / footprint target | Schematic target | Symbol target | Main downgrade areas from 10.99 |
+| Target | Board / footprint target | Schematic target | Symbol target | Main downgrade areas from current development |
 | --- | ---: | ---: | ---: | --- |
-| KiCad 10 | `20260206` | `20260306` | `20251024` | Remove 10.99-only extruded body metadata, native ellipses, dielectric frequency fields, net chains, and copper thieving |
+| KiCad 10 | `20260206` | `20260306` | `20251024` | Remove development-only extruded body metadata, native ellipses, dielectric frequency fields, net chains, copper thieving, pad simulation electrical types, and table-cell knockout flags |
 | KiCad 9 | `20241229` | `20250114` | `20241209` | KiCad 10 items plus PCB shape hatching, via protection, zone hatch offsets, jumper pads, group design-block IDs, custom layer counts, rounded rectangles, PCB points, table UUIDs, barcodes, split via types, netcode omission, backdrill/post-machining, PCB variants, schematic variants/body styles/rounded rectangles/stacked pins/property formatting |
 | KiCad 8 | `20240108` | `20231120` | `20231120` | KiCad 9 items plus tables, embedded files, component classes, padstacks, via stacks, rule areas, tenting, user layer expansion, sheet attributes, multiple netclass assignments, netclass color highlighting |
 | KiCad 7 | `20221018` | `20230121` | `20220914` | KiCad 8 items plus PCB fields, DNP attribute propagation, modern teardrops, custom pad spoke templates, generators, UUID/id normalization, text boxes, images, net ties, font/field formatting, rule areas, modern schematic simulation/exclude flags |
@@ -464,6 +537,13 @@ Generic parser gates:
 | 20260512 | `net_chains`, `net_chain` | PCB net chains |
 | 20260513 | `thieving` | Copper thieving zone fill mode |
 
+Current development coverage gaps found in local KiCad `10.99.0-1273-gd90e32b6a0`:
+
+| Introduced | Missing downgrade handling | Notes |
+| ---: | --- | --- |
+| 20260521 | Pad `sim_electrical_type` | Serialized as `(sim_electrical_type source)` or `(sim_electrical_type sink)` on pads; not yet present in `kicad-backport-cplus` feature gates. |
+| 20260603 | Table-cell `knockout` flag | Must be handled contextually for PCB table cells; `knockout` is not safe as a global token gate because other object types also use it. |
+
 Compatibility rewrites:
 
 | Target cutoff | Rewrite |
@@ -541,8 +621,9 @@ target version, changed flag, and warnings.
     padstacks.
   - KiCad 9 must not write V10 variants, barcode, backdrill, split via type, and
     similar constructs.
-  - KiCad 10 must not write 10.99-only extruded body metadata, native ellipses,
-    dielectric frequency fields, net chains, or copper thieving.
+  - KiCad 10 must not write current-development extruded body metadata, native
+    ellipses, dielectric frequency fields, net chains, copper thieving, pad
+    simulation electrical types, or table-cell knockout flags.
 - Lossy downgrades should produce warnings or sidecar metadata instead of silent
   deletion.
 
