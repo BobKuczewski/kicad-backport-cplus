@@ -4,7 +4,7 @@ This document tracks KiCad file format version differences used by the backport
 converter. It is organized so newer stable or development versions can be added
 without renaming the file.
 
-Last updated: 2026-06-05.
+Last updated: 2026-06-07.
 
 ## Sources and Method
 
@@ -22,6 +22,8 @@ Sources reviewed:
   - `src/kicad_backport_rules.cpp`
   - `src/kicad_backport_rule_rewriters.cpp`
   - `src/kicad_backport_upgrade.cpp`
+  - `src/kicad_backport_legacy.cpp`
+  - `src/kicad_backport_pathmap.cpp`
   - `src/kicad_backport.cpp`
 - Version header files:
   - `pcbnew/kicad_plugin.h` for KiCad 4/5 PCB formats.
@@ -103,12 +105,25 @@ Backport implications:
 
 - KiCad 4/5 schematic targets require a legacy `.sch` writer, not just a
   `.kicad_sch` version rewrite.
-- KiCad 4/5 symbol targets require legacy `.lib` / `.dcm` output or an explicit
-  lossy/unimplemented warning.
+- KiCad 4/5 symbol targets require legacy `.lib` output and a `.dcm`
+  documentation sidecar. The current implementation writes both, but symbol
+  graphics and metadata are still lossy.
 - KiCad 4 board targets use version `4`; KiCad 5 board targets use `20171130`.
 - V6+ UUIDs, text boxes, embedded files, variants, tables, rule areas, component
   classes, padstacks, via stacks, backdrill, and similar structures cannot be
   preserved directly in V4/V5 files.
+
+The current C++ implementation handles this boundary explicitly:
+
+| Direction | Implemented behavior |
+| --- | --- |
+| Legacy `.sch` -> V6+ `.kicad_sch` | Parses page metadata, components, fields, AR paths, wires, buses, bus entries, sheets, sheet pins, labels/text, junctions, and no-connects. Coordinates are converted from legacy units to mm and deterministic UUIDs are generated from legacy timestamps/paths. If the `L` or `F0` reference is still a placeholder such as `C?`, annotated `AR Ref=` values are used as a fallback. Hidden legacy `#U...` power references are normalized to symbol-library prefixes such as `#PWR` / `#FLG` where possible. Non-wire drawing items are still reported as not fully mapped. |
+| Legacy `.lib` / `.dcm` -> V6+ `.kicad_sym` | Parses `DEF`, fields, pins, rectangles, polylines, circles, arcs, text, aliases, and paired `.dcm` metadata. Library-symbol `Reference` fields are normalized to reference prefixes, so legacy placeholders or instance-like values such as `C?`, `R12`, and `TP?` become `C`, `R`, and `TP`; power prefixes such as `#PWR` are preserved. The writer emits modern symbol properties, pins, and drawing primitives but reports that primitives and pins remain lossy. |
+| Legacy `.pro` -> `.kicad_pro` | Emits minimal project JSON with preserved legacy project settings and `legacy_symbol_libraries`. |
+| V6+ `.kicad_sch` -> legacy `.sch` | Writes legacy `$Descr`, `$Comp`, fields, orientation matrices, wires/buses/entries, labels/text, junctions, no-connects, sheets, and sheet pins. Modern schematic objects are lossy. |
+| V6+ `.kicad_sym` -> legacy `.lib` / `.dcm` | Writes `DEF`, `ALIAS`, `F0`/`F1`, `DRAW`, pin `X` records, and documentation sidecar entries from symbol properties. |
+| V6+ `.kicad_pro` -> legacy `.pro` | Writes minimal legacy project settings and library names restored from JSON or local library tables. |
+| V4 <-> V5 legacy files | Rewrites legacy `.sch` and `.lib` headers for the requested major version while preserving raw records; it does not yet simplify every V4/V5-specific feature. |
 
 ## Current Development Version Matrix
 
@@ -124,6 +139,12 @@ These findings are post-10.0 development items and must not be labeled as KiCad
 | Symbol library `.kicad_sym` | `20260508` | Native ellipse primitive |
 | Worksheet `.kicad_wks` | `20231118` | Generator version / KiCad 8 cleanup |
 | Design rules `.kicad_dru` | `20200610` | No current-development-specific version bump found |
+
+Implementation note: the current `10.99` target alias in
+`src/kicad_backport_versions.cpp` advances only board/footprint outputs to
+`20260603`. It intentionally keeps symbol libraries at `20251024` and schematics
+at `20260306` until those current-development symbol/schematic targets are made
+explicit conversion targets.
 
 Post-10.0 development version steps found so far:
 
@@ -409,11 +430,44 @@ Supported alias mappings in code:
 
 | Alias | Symbol | Schematic | Board | Footprint | Worksheet | Design rules |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `4.0` | Legacy `.lib` `2.3` | Legacy `.sch` `2` | `4` | `4` | Legacy drawing sheet | No standalone `.kicad_dru` |
+| `5.0` / `5.1` | Legacy `.lib` `2.4` | Legacy `.sch` `4` | `20171130` | `20171130` | Legacy drawing sheet | No standalone `.kicad_dru` |
 | `6.0` | `20211014` | `20211123` | `20211014` | `20211014` | `20210606` | `20200610` |
 | `7.0` | `20220914` | `20230121` | `20221018` | `20221018` | `20220228` | `20200610` |
 | `8.0` | `20231120` | `20231120` | `20240108` | `20240108` | `20231118` | `20200610` |
 | `9.0` | `20241209` | `20250114` | `20241229` | `20241229` | `20231118` | `20200610` |
 | `10.0` | `20251024` | `20260306` | `20260206` | `20260206` | `20231118` | `20200610` |
+| `10.99` | `20251024` | `20260306` | `20260603` | `20260603` | `20231118` | `20200610` |
+
+For V4/V5 schematic, symbol-library, documentation, and project files, the
+alias is resolved by target major version rather than by a numeric S-expression
+version. For board and footprint files, V4/V5 remain S-expression and use the
+numeric versions shown above.
+
+The resolver accepts common user spellings such as `9`, `v9`, `kicad-9`, and
+`9.0`. A raw numeric target such as `20260521` bypasses the release alias table
+and is applied directly to the current document kind, which is useful for
+testing an individual parser cutoff. Output suffixes are major-based
+(`_V6`, `_V9`, and so on), with `10.99` using `_V10_99`.
+
+### Conversion Flow in Code
+
+The main conversion path is `CONVERTER::normalizeFile()`:
+
+1. Load and detect the input document. Legacy `.sch`, `.lib`, `.dcm`, and
+   `.pro` files are routed through the legacy loader rather than the
+   S-expression parser.
+2. Resolve the target by KiCad major alias or raw numeric format version.
+3. If the source is legacy and the target is V4/V5, rewrite only the legacy
+   header family where applicable. If the source is legacy and the target is
+   V6+, call the legacy-to-S-expression writer.
+4. If the source is modern and the target is V4/V5, call the S-expression to
+   legacy writer, and write a `.dcm` sidecar for symbol libraries.
+5. For modern S-expression to modern S-expression conversions, compare numeric
+   source and target versions. Equal versions are copied unchanged; older
+   sources run the limited upgrade-normalization rules; newer sources run the
+   downgrade rules.
+6. Finally, write the requested target `version` atom and format the output.
 
 If the source file already has exactly the requested numeric version, the
 converter copies it unchanged. If the source version is lower than the target,
@@ -424,7 +478,7 @@ writing the requested `version` field:
 | --- | --- |
 | Symbol library | Expand legacy font-style atoms for modern targets; expand pin visibility atoms; move property `hide` out of `effects`; remove legacy property IDs. |
 | Schematic | Rename `tstamp` to `uuid`; rename `netclass_flag` to `directive_label`; convert old text-box `start/end` to `at/size`; expand legacy font and pin-visibility atoms; move property `hide` out of `effects`; remove legacy property IDs. |
-| Board / footprint | Rename `tstamp` to `uuid` for modern targets; expand font-style atoms; expand footprint `dnp` atoms; normalize booleans to KiCad 7-style `yes/no`; remove obsolete `tedit`; optionally convert legacy numeric net references to net names. |
+| Board / footprint | Remove legacy `host`, rename `page` to `paper`, upgrade legacy arc `angle` fields to midpoint arcs, remove line `angle`, add missing cached zone fill layers, rename `tstamp` to `uuid` for modern targets, expand font-style atoms, expand footprint `dnp` atoms, normalize booleans to KiCad 7-style `yes/no`, remove obsolete `tedit`, and for `>= 20251028` convert legacy numeric net references to net names. |
 
 This is not a full semantic upgrade engine; it only normalizes syntax the
 converter already knows how to express.
@@ -482,6 +536,32 @@ compatibility rewrites around PCB fields, UUIDs, and footprint data:
 | Board / footprint | Remove V8+ generated objects, teardrops, tables, embedded files/fonts, component classes, pad/via stacks, rule areas, via protection, and newer target syntax. Convert user-layer type qualifiers to `user`; remove graphic/track soldermask fields, table angles, render caches, knockout flags, model `hide`, graphic net connectivity, group locked fields, via layer-connection fields, footprint jumper/net-tie/unit fields, font `face`, and legacy-incompatible footprint attr atoms. Convert PCB footprint properties back to `fp_text`, rename `uuid`/`id` back to `tstamp`/`id` legacy forms, rename solder-paste and thermal fields, convert strokes to legacy `width`, convert dimensions to visible graphics, downgrade booleans/presence atoms, and rebuild numeric netcodes. |
 | Project side files | Generate legacy numeric-ID `.kicad_prl` display settings for V7 boards. |
 
+#### KiCad 6 Target
+
+KiCad 6 targets are the strictest modern S-expression targets and receive all
+KiCad 7 handling plus KiCad 6 parser-specific schematic and library fixes:
+
+| Kind | Implemented handling |
+| --- | --- |
+| Symbol library | Add KiCad 6 standard property IDs for `Reference`, `Value`, `Footprint`, `Datasheet`, `ki_keywords`, `ki_description`, and `ki_fp_filters`; remove V7+ simulation, field-formatting, font-face, position-file, jumper, and power-class syntax. |
+| Schematic | Generate root-level `sheet_instances` and `symbol_instances` when source hierarchy data exists, normalize sheet property names/IDs, remove symbol-internal `instances`, remove `pin/alternate`, unquote UUID atoms for older parsers, and keep placed symbol pin UUID blocks because KiCad 6 uses them for instance association. |
+| Board / footprint | Apply the KiCad 7 PCB cleanup set at the V6 board target `20211014`, including stroke-to-width conversion, dimension-to-graphics conversion, thermal field renames, removal of `zone attr`, pad/via layer-connection fields, graphic net connectivity, modern footprint fields, and legacy numeric netcode reconstruction. |
+| Project side files | Generate numeric-ID `.kicad_prl`, remove top-level `version` nodes from `sym-lib-table` / `fp-lib-table`, add project-local footprint aliases when needed, ensure a project-local symbol table for converted `.kicad_sym` files, and embed generated symbol library definitions in schematic caches when required. |
+
+#### KiCad 5 / 4 Targets
+
+KiCad 5/4 targets switch schematic, symbol, documentation, and project files to
+legacy text families and keep board/footprint files in old S-expression
+formats:
+
+| Kind | Implemented handling |
+| --- | --- |
+| Schematic | Convert V6+ `.kicad_sch` to legacy `.sch`, preserving page metadata, components, fields, orientation/mirror matrices, wires, buses, bus entries, labels/text, junctions, no-connects, sheets, and sheet pins. Modern objects are reported as lossy. |
+| Symbol library | Convert V6+ `.kicad_sym` to legacy `.lib`; write `.dcm` sidecar from symbol documentation properties; convert aliases, pins, rectangles, polylines, circles, arcs, and text to legacy records where possible. |
+| Project | Convert `.kicad_pro` to minimal legacy `.pro`; restore library names from JSON or local library tables. |
+| Board / footprint | Set KiCad 5 header syntax (`host pcbnew 5.0.2`, `page`), map user layers to the fixed KiCad 5 set, rename `footprint` to `module`, split multilayer zones into single-layer zones, remove keepout zones and stackup data, shorten UUID/tstamp/id atoms to 8-hex legacy IDs, remove pad metadata and footprint properties/attrs, convert midpoint arcs to legacy angle arcs, convert rectangles to lines, approximate track arcs with segments, and rebuild numeric net declarations. |
+| KiCad 4 extra board/footprint rules | Remove netclass differential-pair constraints, remove multilayer keepout settings, downgrade model offsets to legacy `at` fields, and simplify custom/rounded pads to rectangular pads. |
+
 ### Document Detection and Project Handling
 
 The C++ implementation detects KiCad document kind primarily from the root
@@ -499,8 +579,8 @@ S-expression head:
 If the root head is missing or unknown, it falls back to file extension:
 `.kicad_sym`, `.kicad_sch`, `.kicad_pcb`, `.kicad_mod`, `.kicad_dru`, and
 `.kicad_wks`. Legacy `.sch`, `.lib`, `.dcm`, and `.pro` are also detected as
-legacy KiCad kinds, but direct conversion from those legacy file families is not
-implemented in the current phase.
+legacy KiCad kinds and are routed to the legacy parser/writer instead of the
+S-expression parser.
 
 When converting a project directory or `.kicad_pro`, it copies only editable
 KiCad project inputs and common local 3D model files. Generated outputs,
@@ -508,9 +588,17 @@ history/backup folders, Gerbers, fabrication outputs, BOMs, and temporary files
 are skipped. For KiCad 6, 7, and 8 board targets it also creates legacy
 `.kicad_prl` local board display settings with numeric `visible_items`, full
 `visible_layers`, and the older local-settings meta version so converted objects
-remain visible in older GUIs. For KiCad 6 project targets it additionally
-removes top-level `version` nodes from `sym-lib-table` / `fp-lib-table` and
+remain visible in older GUIs. For V4/V5 project targets it does not copy modern
+`.kicad_prl` files. For KiCad 6 project targets it additionally removes
+top-level `version` nodes from `sym-lib-table` / `fp-lib-table`, adds
+project-local footprint-library aliases for local `.pretty` libraries, and
 rebuilds root-level schematic hierarchy instance tables across child sheets.
+For V6+ project targets containing converted symbol libraries, it ensures a
+project-local `sym-lib-table` and can embed generated project-local symbol
+definitions in schematic caches. Embedded library symbol defaults use reference
+prefixes (`C`, `U`, `#PWR`) rather than placeholder instance references
+(`C?`, `U?`), while placed schematic symbols keep the concrete instance
+reference and footprint property.
 
 ### Symbol Library Rules
 
@@ -657,6 +745,12 @@ Compatibility rewrites:
 | `<= 20241229` | Remove PCB font `face` fields |
 | `< 20251101` | Remove pad/via post-machining fields |
 | `< 20251028` | Rebuild legacy numeric board netcodes and root-level net declarations |
+| `<= 20171130` | Remove zone `name`, cached filled-area thickness, island-removal fill fields, board `stackup`, free-via fields, PCB graphic fill fields, pad chamfer/property/pin/tstamp/uuid metadata, footprint text IDs, model opacity, footprint group metadata, footprint keepout zones, footprint properties and attributes, filled-polygon layer fields, and modern `.kicad_prl` side files |
+| `<= 20171130` | Downgrade KiCad 5 board syntax: write `host` / `page`, map modern/custom user layers to KiCad 5 fixed layer names, split multilayer zones, remove keepout zones, rename `footprint` to `module`, shorten UUID/tstamp/id atoms to 8-hex legacy IDs, convert midpoint arcs to legacy angle arcs, convert rectangles to line segments, approximate track arcs with legacy segments, and keep `net_name` for zones while rebuilding numeric net declarations |
+| `< 20171114` | Convert 3D model `offset/xyz` mm values back to legacy KiCad 4 `at/xyz` inch values |
+| `< 20170922` | Remove multilayer keepout settings for KiCad 4 |
+| `< 20170920` | Simplify custom and rounded pads to rectangular pads for KiCad 4 |
+| `< 20160815` | Remove netclass differential-pair constraints for KiCad 4 |
 
 KiCad 6 parser-specific fixes observed in project-level tests:
 
@@ -669,6 +763,7 @@ KiCad 6 parser-specific fixes observed in project-level tests:
 | Symbol libraries | Remove symbol `exclude_from_sim` for targets older than `20230409` and add KiCad 6 standard property IDs. |
 | Schematics | Remove pin `alternate`, generate KiCad 6 root instance tables, normalize root-sheet instance paths, normalize sheet property names/IDs, and remove symbol-internal `instances`. Placed symbol pin UUID blocks are intentionally retained because KiCad 6 uses them for instance association. |
 | Project side files | Generate numeric-ID `.kicad_prl` display settings for V6/V7/V8 and remove library-table top-level `version` nodes for V6. |
+| Legacy symbol references | Normalize legacy library defaults such as `C?` or `R12` to library reference prefixes (`C`, `R`) in `.kicad_sym` and embedded `lib_symbols`; keep concrete schematic instance references such as `C12` on placed symbols and `symbol_instances`. |
 
 ### Worksheet and Design Rules
 
@@ -686,8 +781,18 @@ rewrites are currently implemented because the file format version macro remains
 
 Every implemented removal or compatibility rewrite that changes the tree adds a
 warning. Generic feature gates report the number of removed nodes and the
-introduction version. Reports include path, detected kind, source version,
-target version, changed flag, and warnings.
+introduction version. Legacy parser/writer paths also report lossy conversion
+areas such as partially mapped schematic drawing items, symbol drawing
+primitives, pins, aliases, `.dcm` metadata merge/write, and legacy project
+settings restoration.
+
+Reports include path, input path, output path, detected kind, source kind,
+target kind, source version, target version, changed flag, and warnings. Project
+conversion can append synthetic reports for library-table compatibility,
+project-local symbol-cache embedding, and generated side files. When a modern
+symbol library is converted to a legacy target, the primary report is for the
+`.lib` output and a `.dcm` sidecar is written in the same directory with
+warnings attached to the same conversion.
 
 ## Converter Requirements
 

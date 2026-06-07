@@ -25,7 +25,7 @@ KiCad Backport 降级 CLI 的独立 C++17 实现。工具
 可以直接使用，也可以通过 Python 插件使用：
 
 ```text
-kicad-backport convert --target-version <6.0|7.0|8.0|9.0|10.0|number> [--report report.json] <input> <output>
+kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport version
 ```
@@ -41,23 +41,22 @@ converter读取 KiCad S-表达式文件，应用版本驱动的降级
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
 ```
 
-支持的版本别名为 `6.0`、`7.0`、`8.0`、`9.0` 和 `10.0`。一个原始的
-KiCad 文件格式版本号在测试特定时也可以传递
-解析器截止。
+支持的版本别名为 `4.0`、`5.0`、`5.1`、`6.0`、`7.0`、`8.0`、`9.0`、`10.0` 和 `10.99`。测试特定解析器截止点时，也可以传入原始 KiCad 文件格式版本号。
 
 ## 支持状态
 
-当前的实现目标是 KiCad 6 到 KiCad 10 S 表达式文件
-家庭：
+当前实现覆盖 KiCad 4 到 KiCad 10 文件族：
 
 | 目标 | 地位 |
 | --- | --- |
 | KiCad 10 | 删除 10.0 后/当前开发语法，包括 20260521 焊盘 `sim_electrical_type` 和 20260603 表格单元格 `knockout`。 |
+| KiCad 10.99 | 当前开发版 board/footprint 目标：写出 board 和 footprint 版本 `20260603`；symbol library 和 schematic 仍使用 KiCad 10 目标版本（`20251024` / `20260306`）。 |
 | KiCad9 | 删除或降级 KiCad 10/当前功能，例如变体、条形码、背钻/后加工、跳线垫和网络代码省略。 |
 | KiCad 8 | 删除 KiCad 9+ 表、嵌入文件、组件类、padstack、过孔堆栈、规则区域和任意用户层表单。 |
 | KiCad7 | 对 UUID/tstamp 表单、PCB 封装字段、泪滴、生成的对象、图像和文本框应用较旧的解析器兼容性重写。 |
 | KiCad 6 | 基本的文件降级支持已基本完成。转换后的测试项目已在实际的 KiCad 6 应用程序中手动打开以进行验证。 |
-| KiCad 5 及更早版本 | 尚未实现。该代码现在将遗留文档检测、路径映射和升级/降级规则分开，为未来的 V5 支持做好准备。 |
+| KiCad 5 | 支持 board/footprint 目标版本 `20171130`，并提供 legacy `.sch`、`.lib`、`.dcm`、`.pro` 的基础导入/导出和确定性输出路径。复杂原理图对象、符号绘图图元和引脚仍然是有损转换，并会输出 warning。 |
+| KiCad 4 | 支持 board/footprint 目标版本 `4`、V4 legacy 原理图/符号库文件头重写，以及 V4 输出后缀和扩展名。V5-only PCB 特性会尽可能简化，例如 custom pad 会降级为矩形 pad。 |
 
 ## 降级政策
 
@@ -78,6 +77,9 @@ converter应用最兼容的表示形式
 转换项目目录或 `.kicad_pro` 时，该工具仅复制
 可编辑的 KiCad 输入和常见的本地 3D 模型文件。生成制造
 输出、历史/备份文件夹、Gerber、BOM 和临时文件将被跳过。
+跨越 KiCad 5/6 边界时会按目标自动切换扩展名，例如
+`.sch -> .kicad_sch`、`.lib -> .kicad_sym`、`.kicad_sch -> .sch`、
+`.kicad_sym -> .lib/.dcm`、`.kicad_pro -> .pro`。
 
 ## 项目布局
 
@@ -86,7 +88,7 @@ converter应用最兼容的表示形式
 
 - `src/kicad_backport.cpp`：CLI 流程、项目复制/过滤、文件转换。
 - `src/kicad_backport_document.cpp`：KiCad 文档类型检测。
-- `src/kicad_backport_legacy.cpp`：旧版 KiCad 文档加载脚手架。
+- `src/kicad_backport_legacy.cpp`：legacy KiCad `.sch`、`.lib`、`.dcm`、`.pro` 解析/写出辅助逻辑。
 - `src/kicad_backport_pathmap.cpp`：目标文件扩展名映射助手。
 - `src/kicad_backport_report.cpp`：JSON 报告格式。
 - `src/kicad_backport_rules.cpp`：版本门和降级规则排序。

@@ -93,6 +93,11 @@ int unquoteAtomsInHeadedLists( SEXPR::NODE* aRoot, const std::set<std::string>& 
 int ensureLegacySchematicSymbolInstances( SEXPR::NODE* aRoot );
 int removePlacedSymbolPinUuidBlocks( SEXPR::NODE* aRoot );
 int downgradePCBStrokeToLegacyWidth( SEXPR::NODE* aRoot );
+int downgradePCBArcsToLegacyAngles( SEXPR::NODE* aRoot );
+int downgradePCBRectsToLines( SEXPR::NODE* aRoot );
+int splitMultilayerZonesToLegacySingleLayerZones( SEXPR::NODE* aRoot );
+int downgradePCBTrackArcsToSegments( SEXPR::NODE* aRoot );
+int downgradeModelOffsetsToLegacyAt( SEXPR::NODE* aRoot );
 
 // KiCad-specific equivalent downgrades.
 int ensureLegacyPropertyIds( SEXPR::NODE* aRoot );
@@ -109,6 +114,7 @@ int downgradePCBPlotParamsBoolsToTrueFalse( SEXPR::NODE* aRoot );
 int downgradePCBShapeFillNoToNone( SEXPR::NODE* aRoot );
 int downgradePCBShapeHatchFills( SEXPR::NODE* aRoot );
 int ensureZoneFilledAreasThickness( SEXPR::NODE* aRoot );
+int ensureZoneFilledPolygonLayers( SEXPR::NODE* aRoot );
 int downgradeDimensionsToText( SEXPR::NODE* aRoot );
 int downgradeDimensionsToGraphics( SEXPR::NODE* aRoot );
 int downgradeBoardNetNamesToCodes( SEXPR::NODE* aRoot );

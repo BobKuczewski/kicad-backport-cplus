@@ -22,6 +22,7 @@ enum class KIND
     FOOTPRINT,
     DESIGN_RULES,
     WORKSHEET,
+    PROJECT,
     LEGACY_SCHEMATIC,
     LEGACY_SYMBOL_LIBRARY,
     LEGACY_SYMBOL_DOCUMENTATION,
@@ -94,14 +95,16 @@ private:
     bool isKiCadProjectFilePath( const std::filesystem::path& aPath ) const;
     bool isExcludedProjectDirName( const std::string& aName ) const;
     std::vector<PROJECT_COPY_ENTRY> copyProjectTree( const std::filesystem::path& aInput,
-                                                     const std::filesystem::path& aOutput ) const;
+                                                     const std::filesystem::path& aOutput,
+                                                     const std::string& aTarget ) const;
 
     void writeReport( const std::filesystem::path& aPath,
                       const std::vector<FILE_REPORT>& aReports ) const;
 
     // Creates legacy local board display settings for KiCad 6/7/8.
     void ensureLegacyProjectLocalSettings( const std::filesystem::path& aPath,
-                                           const std::string& aTargetSuffix ) const;
+                                           const std::string& aTargetSuffix,
+                                           const std::filesystem::path& aSourcePath = {} ) const;
 };
 
 // Detects KiCad document type from the root S-expression or file extension.

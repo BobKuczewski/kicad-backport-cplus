@@ -4,7 +4,7 @@ Questo documento tiene traccia delle differenze di versione del formato file KiC
 convertitore. È organizzato in modo da poter aggiungere nuove versioni stabili o di sviluppo
 senza rinominare il file.
 
-Ultimo aggiornamento: 2026-06-05.
+Ultimo aggiornamento: 2026-06-07.
 
 ## Fonti e metodo
 
@@ -22,6 +22,8 @@ confini.
   - `src/kicad_backport_rules.cpp`
   - `src/kicad_backport_rule_rewriters.cpp`
   - `src/kicad_backport_upgrade.cpp`
+  - `src/kicad_backport_legacy.cpp`
+  - `src/kicad_backport_pathmap.cpp`
   - `src/kicad_backport.cpp`
 - File di intestazione della versione:
   - `pcbnew/kicad_plugin.h` per i formati PCB KiCad 4/5.
@@ -110,6 +112,17 @@ avviso con perdita/non implementato.
 classi, padstack, via stack, backdrill e strutture simili non possono esserlo
 conservato direttamente nei file V4/V5.
 
+### Sincronizzazione dell'implementazione C++ attuale (2026-06-07)
+
+L'implementazione attuale gestisce esplicitamente il confine legacy KiCad 4/5: i `.sch` legacy possono essere convertiti in `.kicad_sch` V6+, i `.lib` / `.dcm` legacy in `.kicad_sym` V6+, e i `.kicad_sch` / `.kicad_sym` / `.kicad_pro` V6+ possono essere riscritti come `.sch` / `.lib` + `.dcm` / `.pro` legacy. Tra file legacy V4 e V5, per ora vengono soprattutto riscritti gli header `.sch` e `.lib` mantenendo i record grezzi.
+
+La conversione degli schematic legacy analizza page metadata, components, fields, AR paths, wires, buses, bus entries, sheets, sheet pins, labels/text, junctions e no-connects. Se il reference `L` o `F0` e ancora un placeholder come `C?`, viene preferito `AR Ref=` annotato. I power reference nascosti `#U...` vengono normalizzati dove possibile in `#PWR` / `#FLG`. La conversione delle symbol library legacy normalizza il `Reference` predefinito del simbolo al prefisso: `C?`, `R12` e `TP?` diventano `C`, `R` e `TP`. Le istanze posizionate nello schematic mantengono reference concreti come `C12` e la loro footprint property.
+
+L'attuale target alias `10.99` porta solo gli output board/footprint a `20260603`. Le symbol library restano a `20251024` e gli schematic a `20260306`. Questi target di sviluppo symbol/schematic saranno abilitati separatamente quando diventeranno target di conversione espliciti.
+
+Il flusso principale di `CONVERTER::normalizeFile()` e: rilevare documento legacy o S-expression, risolvere target alias o versione numerica grezza, riscrivere gli header legacy per legacy -> V4/V5, scrivere S-expression per legacy -> V6+, scrivere legacy e sidecar `.dcm` per modern -> V4/V5, scegliere copy / upgrade normalization / downgrade rules per modern S-expression e infine scrivere l'atomo `version` target.
+
+La conversione di progetto filtra output generati, history/backup, Gerber, BOM e file temporanei. I target V4/V5 non copiano `.kicad_prl` moderni. I target V6/V7/V8 generano `.kicad_prl` con numeric visible-items. I target progetto V6 rimuovono il `version` top-level dalle library tables, aggiungono alias footprint locali `.pretty`, creano se necessario un `sym-lib-table` project-local e possono incorporare le symbol definitions generate nello schematic cache.
 ## Matrice della versione di sviluppo attuale
 
 Il ramo KiCad `master` recensito è già passato allo sviluppo 11.0.
@@ -414,6 +427,7 @@ Mappature alias supportate nel codice:
 | `8.0` | `20231120` | `20231120` | `20240108` | `20240108` | `20231118` | `20200610` |
 | `9.0` | `20241209` | `20250114` | `20241229` | `20241229` | `20231118` | `20200610` |
 | `10.0` | `20251024` | `20260306` | `20260206` | `20260206` | `20231118` | `20200610` |
+| 10.99 | 20251024 | 20260306 | 20260603 | 20260603 | 20231118 | 20200610 |
 
 Se il file sorgente ha già esattamente la versione numerica richiesta, il file
 il convertitore lo copia senza modifiche. Se la versione di origine è inferiore a quella di destinazione,

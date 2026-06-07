@@ -38,11 +38,15 @@ const std::map<std::string, VERSION_MAP>& targetVersions()
 {
     // File format versions differ by document type for the same KiCad release.
     static const std::map<std::string, VERSION_MAP> targets = {
+        { "4.0",  { { KIND::BOARD, "4" }, { KIND::FOOTPRINT, "4" } } },
+        { "5.0",  { { KIND::BOARD, "20171130" }, { KIND::FOOTPRINT, "20171130" } } },
+        { "5.1",  { { KIND::BOARD, "20171130" }, { KIND::FOOTPRINT, "20171130" } } },
         { "6.0",  { { KIND::SYMBOL_LIBRARY, "20211014" }, { KIND::SCHEMATIC, "20211123" }, { KIND::BOARD, "20211014" }, { KIND::FOOTPRINT, "20211014" }, { KIND::WORKSHEET, "20210606" }, { KIND::DESIGN_RULES, "20200610" } } },
         { "7.0",  { { KIND::SYMBOL_LIBRARY, "20220914" }, { KIND::SCHEMATIC, "20230121" }, { KIND::BOARD, "20221018" }, { KIND::FOOTPRINT, "20221018" }, { KIND::WORKSHEET, "20220228" }, { KIND::DESIGN_RULES, "20200610" } } },
         { "8.0",  { { KIND::SYMBOL_LIBRARY, "20231120" }, { KIND::SCHEMATIC, "20231120" }, { KIND::BOARD, "20240108" }, { KIND::FOOTPRINT, "20240108" }, { KIND::WORKSHEET, "20231118" }, { KIND::DESIGN_RULES, "20200610" } } },
         { "9.0",  { { KIND::SYMBOL_LIBRARY, "20241209" }, { KIND::SCHEMATIC, "20250114" }, { KIND::BOARD, "20241229" }, { KIND::FOOTPRINT, "20241229" }, { KIND::WORKSHEET, "20231118" }, { KIND::DESIGN_RULES, "20200610" } } },
         { "10.0", { { KIND::SYMBOL_LIBRARY, "20251024" }, { KIND::SCHEMATIC, "20260306" }, { KIND::BOARD, "20260206" }, { KIND::FOOTPRINT, "20260206" }, { KIND::WORKSHEET, "20231118" }, { KIND::DESIGN_RULES, "20200610" } } },
+        { "10.99", { { KIND::SYMBOL_LIBRARY, "20251024" }, { KIND::SCHEMATIC, "20260306" }, { KIND::BOARD, "20260603" }, { KIND::FOOTPRINT, "20260603" }, { KIND::WORKSHEET, "20231118" }, { KIND::DESIGN_RULES, "20200610" } } },
     };
 
     return targets;
@@ -88,6 +92,9 @@ std::string TargetVersionSuffix( const std::string& aTarget )
     if( StartsWith( value, "v" ) )
         value = value.substr( 1 );
 
+    if( value == "10.99" )
+        return "V10_99";
+
     size_t sep = value.find_first_of( ".-_" );
     std::string major = sep == std::string::npos ? value : value.substr( 0, sep );
 
@@ -98,6 +105,29 @@ std::string TargetVersionSuffix( const std::string& aTarget )
             []( unsigned char c ) { return static_cast<char>( std::toupper( c ) ); } );
 
     return "V" + major;
+}
+
+
+int TargetMajorVersion( const std::string& aTarget )
+{
+    std::string value = Lower( Trim( aTarget ) );
+
+    if( value.empty() )
+        throw std::runtime_error( "empty target version" );
+
+    if( StartsWith( value, "kicad-" ) )
+        value = value.substr( 6 );
+
+    if( StartsWith( value, "v" ) )
+        value = value.substr( 1 );
+
+    size_t sep = value.find_first_of( ".-_" );
+    std::string major = sep == std::string::npos ? value : value.substr( 0, sep );
+
+    if( !IsNumber( major ) )
+        throw std::runtime_error( "unsupported KiCad target version alias: " + aTarget );
+
+    return std::stoi( major );
 }
 
 } // namespace KICAD_BACKPORT

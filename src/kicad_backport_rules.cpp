@@ -51,7 +51,7 @@ const std::vector<FEATURE_RULE>& boardRules()
         { 20220621, { "image" }, "PCB image objects are not available" },
         { 20220818, { "net_tie", "net_ties" }, "first-class net-tie storage is not available" },
         { 20231007, { "generated" }, "PCB generative objects are not available" },
-        { 20240108, { "teardrop", "teardrops" }, "teardrop parameters are not available" },
+        { 20240108, { "teardrop", "teardrops", "legacy_teardrops" }, "teardrop parameters are not available" },
         { 20240202, { "table" }, "PCB tables are not available" },
         { 20240609, { "tenting" }, "tenting keyword is not available" },
         { 20240706, { "embedded_files", "embedded_file", "embedded_fonts" }, "embedded files are not available" },
@@ -74,6 +74,285 @@ const std::vector<FEATURE_RULE>& boardRules()
     };
 
     return rules;
+}
+
+
+int downgradeCustomPadsToRects( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "pad"
+        && ( aRoot->AtomAt( 3 ) == "custom" || aRoot->AtomAt( 3 ) == "roundrect" ) )
+    {
+        if( aRoot->SetAtomAt( 3, "rect", false ) )
+            ++changed;
+
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+        kept.reserve( aRoot->Children.size() );
+
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( child && !child->IsAtom()
+                && ( child->HeadView() == "primitives" || child->HeadView() == "options"
+                     || child->HeadView() == "roundrect_rratio" ) )
+            {
+                ++changed;
+                continue;
+            }
+
+            kept.push_back( std::move( child ) );
+        }
+
+        aRoot->Children = std::move( kept );
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += downgradeCustomPadsToRects( child.get() );
+
+    return changed;
+}
+
+
+int downgradePcbHeaderToLegacy5( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "kicad_pcb" )
+        return 0;
+
+    int changed = 0;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( !child || child->IsAtom() )
+            continue;
+
+        if( child->HeadView() == "generator" )
+        {
+            if( child->SetAtomAt( 0, "host", false ) )
+                ++changed;
+
+            if( child->SetAtomAt( 1, "pcbnew", false ) )
+                ++changed;
+
+            if( child->Children.size() < 3 )
+            {
+                child->Children.push_back( SEXPR::NODE::MakeAtom( "5.0.2" ) );
+                ++changed;
+            }
+            else if( child->SetAtomAt( 2, "5.0.2", false ) )
+            {
+                ++changed;
+            }
+
+            if( child->Children.size() > 3 )
+            {
+                child->Children.resize( 3 );
+                ++changed;
+            }
+        }
+        else if( child->HeadView() == "paper" )
+        {
+            if( child->SetAtomAt( 0, "page", false ) )
+                ++changed;
+
+            if( !child->AtomAtView( 1 ).empty()
+                && child->SetAtomAt( 1, child->AtomAt( 1 ), false ) )
+            {
+                ++changed;
+            }
+        }
+        else if( child->HeadView() == "layers" )
+        {
+            std::set<std::string> seenLayerNames;
+            std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( child->Children.get_allocator() );
+            kept.reserve( child->Children.size() );
+
+            if( !child->Children.empty() )
+                kept.push_back( std::move( child->Children[0] ) );
+
+            for( size_t i = 1; i < child->Children.size(); ++i )
+            {
+                std::unique_ptr<SEXPR::NODE>& layer = child->Children[i];
+
+                if( !layer || layer->IsAtom() || layer->HeadView().empty() )
+                    continue;
+
+                std::string layerName = layer->AtomAt( 1 );
+
+                if( layerName == "User.Drawings" )
+                    layerName = "Dwgs.User";
+                else if( layerName == "User.Comments" )
+                    layerName = "Cmts.User";
+                else if( layerName == "User.Eco1" )
+                    layerName = "Eco1.User";
+                else if( layerName == "User.Eco2" )
+                    layerName = "Eco2.User";
+                else if( layerName.size() > 5 && layerName.substr( 0, 5 ) == "User." )
+                {
+                    ++changed;
+                    continue;
+                }
+
+                if( !layer->AtomAtView( 1 ).empty()
+                    && layer->SetAtomAt( 1, layerName, false ) )
+                {
+                    ++changed;
+                }
+
+                if( layer->Children.size() > 3 )
+                {
+                    layer->Children.resize( 3 );
+                    ++changed;
+                }
+
+                if( seenLayerNames.insert( layer->AtomAt( 1 ) ).second )
+                    kept.push_back( std::move( layer ) );
+                else
+                    ++changed;
+            }
+
+            child->Children = std::move( kept );
+        }
+    }
+
+    return changed;
+}
+
+
+std::string legacy5LayerName( const std::string& aName )
+{
+    if( aName == "User.Drawings" )
+        return "Dwgs.User";
+
+    if( aName == "User.Comments" )
+        return "Cmts.User";
+
+    if( aName == "User.Eco1" || aName == "User.3" )
+        return "Eco1.User";
+
+    if( aName == "User.Eco2" || aName == "User.4" )
+        return "Eco2.User";
+
+    if( aName == "User.2" )
+        return "Cmts.User";
+
+    if( aName.size() > 5 && aName.substr( 0, 5 ) == "User." )
+        return "Dwgs.User";
+
+    return aName;
+}
+
+
+int downgradeLayerRefsToLegacy5( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "layer" && !aRoot->AtomAtView( 1 ).empty() )
+    {
+        std::string mapped = legacy5LayerName( aRoot->AtomAt( 1 ) );
+
+        if( aRoot->SetAtomAt( 1, mapped, false ) )
+            ++changed;
+    }
+    else if( aRoot->HeadView() == "layers" )
+    {
+        for( size_t i = 1; i < aRoot->Children.size(); ++i )
+        {
+            if( !aRoot->Children[i] || !aRoot->Children[i]->IsAtom() )
+                continue;
+
+            std::string mapped = legacy5LayerName( aRoot->AtomAt( i ) );
+
+            if( aRoot->SetAtomAt( i, mapped, false ) )
+                ++changed;
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += downgradeLayerRefsToLegacy5( child.get() );
+
+    return changed;
+}
+
+
+int renameFootprintsToModulesLegacy5( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "footprint" && aRoot->SetAtomAt( 0, "module", false ) )
+        ++changed;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += renameFootprintsToModulesLegacy5( child.get() );
+
+    return changed;
+}
+
+
+bool isHexChar( char aChar )
+{
+    return ( aChar >= '0' && aChar <= '9' ) || ( aChar >= 'a' && aChar <= 'f' )
+           || ( aChar >= 'A' && aChar <= 'F' );
+}
+
+
+char upperHexChar( char aChar )
+{
+    if( aChar >= 'a' && aChar <= 'f' )
+        return static_cast<char>( aChar - 'a' + 'A' );
+
+    return aChar;
+}
+
+
+std::string legacy8HexId( const std::string& aValue )
+{
+    std::string hex;
+    hex.reserve( 8 );
+
+    for( char ch : aValue )
+    {
+        if( !isHexChar( ch ) )
+            continue;
+
+        hex.push_back( upperHexChar( ch ) );
+
+        if( hex.size() == 8 )
+            return hex;
+    }
+
+    return aValue;
+}
+
+
+int downgradePcbTstampsToLegacy5( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( ( aRoot->HeadView() == "tstamp" || aRoot->HeadView() == "uuid" || aRoot->HeadView() == "id" )
+        && !aRoot->AtomAtView( 1 ).empty() )
+    {
+        std::string mapped = legacy8HexId( aRoot->AtomAt( 1 ) );
+
+        if( mapped != aRoot->AtomAt( 1 ) && aRoot->SetAtomAt( 1, mapped, false ) )
+            ++changed;
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += downgradePcbTstampsToLegacy5( child.get() );
+
+    return changed;
 }
 
 } // namespace
@@ -135,14 +414,22 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         // Multi-action gates stay grouped when ordering matters.
         if( aTarget < 20241004 )
         {
-            int n = downgradeBoolListsToAtoms( aDocument.Root.get(), { "hide" } );
-            warnIfChanged( n, "downgraded symbol library boolean hide fields" );
-
-            n = flattenChildListsToAtomsInParents( aDocument.Root.get(),
+            int n = flattenChildListsToAtomsInParents( aDocument.Root.get(),
                                                        { "pin_names", "pin_numbers" },
                                                        { "hide" } );
             warnIfChanged( n, "downgraded symbol pin visibility fields" );
+
+            n = downgradeBoolListsToAtoms( aDocument.Root.get(), { "hide" } );
+            warnIfChanged( n, "downgraded symbol library boolean hide fields" );
         }
+
+        applyWhen( aTarget <= 20211014,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(), { "pin" },
+                                               { "hide" } );
+                   },
+                   "removed KiCad 6-incompatible symbol pin hide fields" );
 
         // Add missing ids before moving property visibility into effects.
         if( aTarget < 20241209 )
@@ -272,14 +559,22 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         // Pin-name and pin-number visibility use the same legacy atom syntax.
         if( aTarget < 20241004 )
         {
-            int n = downgradeBoolListsToAtoms( aDocument.Root.get(), { "hide" } );
-            warnIfChanged( n, "downgraded schematic boolean hide fields" );
-
-            n = flattenChildListsToAtomsInParents( aDocument.Root.get(),
-                                                   { "pin_names", "pin_numbers" },
-                                                   { "hide" } );
+            int n = flattenChildListsToAtomsInParents( aDocument.Root.get(),
+                                                    { "pin_names", "pin_numbers" },
+                                                    { "hide" } );
             warnIfChanged( n, "downgraded schematic symbol pin visibility fields" );
+
+            n = downgradeBoolListsToAtoms( aDocument.Root.get(), { "hide" } );
+            warnIfChanged( n, "downgraded schematic boolean hide fields" );
         }
+
+        applyWhen( aTarget <= 20211123,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(), { "pin" },
+                                               { "hide" } );
+                   },
+                   "removed KiCad 6-incompatible schematic library pin hide fields" );
 
         applyWhen( aTarget <= 20211123,
                    [&]()
@@ -397,8 +692,8 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         };
 
         static const std::set<std::string> connectedGraphicParents = {
-            "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_curve",
-            "fp_line", "fp_arc", "fp_circle", "fp_rect", "fp_poly", "fp_curve"
+            "gr_line", "gr_arc", "gr_circle", "gr_poly", "gr_curve",
+            "fp_line", "fp_arc", "fp_circle", "fp_poly", "fp_curve"
         };
 
         addChildRemoval( aTarget >= 20220225, { "footprint", "module" }, { "tedit" },
@@ -416,6 +711,13 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                          "removed zone placement fields" );
         addChildRemoval( aTarget <= 20221018, { "zone" }, { "attr" },
                          "removed zone attr fields" );
+        addChildRemoval( aTarget <= 20171130, { "zone" }, { "name" },
+                         "removed zone name fields for KiCad 5" );
+        addChildRemoval( aTarget <= 20171130, { "zone" }, { "filled_areas_thickness" },
+                         "removed zone filled-area thickness fields for KiCad 5" );
+        addChildRemoval( aTarget <= 20171130, { "fill" },
+                         { "island_removal_mode", "island_area_min" },
+                         "removed zone island-removal fill fields for KiCad 5" );
         addChildRemoval( aTarget < 20240108, { "setup" },
                          { "allow_soldermask_bridges_in_footprints" },
                          "removed board soldermask bridge setup fields" );
@@ -426,12 +728,41 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                          "removed PCB table cell angle fields" );
         addChildRemoval( aTarget < 20260521, { "pad" }, { "sim_electrical_type" },
                          "removed pad simulation electrical type fields" );
+        addChildRemoval( aTarget <= 20171130, { "setup" }, { "stackup" },
+                         "removed board stackup settings for KiCad 5" );
+        addChildRemoval( aTarget <= 20171130, { "via" }, { "free" },
+                         "removed free via fields for KiCad 5" );
+        addChildRemoval( aTarget <= 20171130,
+                         { "gr_circle", "gr_poly",
+                           "fp_circle", "fp_poly" },
+                         { "fill" },
+                         "removed PCB graphic fill fields for KiCad 5" );
+        addChildRemoval( aTarget <= 20171130, { "pad" },
+                         { "chamfer", "chamfer_ratio", "pinfunction", "pintype", "property",
+                           "tstamp", "uuid" },
+                         "removed pad fields for KiCad 5" );
+        addChildRemoval( aTarget <= 20171130, { "fp_text" }, { "tstamp", "uuid" },
+                         "removed footprint text ids for KiCad 5" );
+        addChildRemoval( aTarget < 20160815, { "net_class" },
+                         { "diff_pair_width", "diff_pair_gap", "diff_pair_via_gap" },
+                         "removed netclass differential-pair constraints for KiCad 4" );
+        addChildRemoval( aTarget < 20170922, { "zone" }, { "keepout" },
+                         "removed multilayer keepout settings for KiCad 4" );
         addChildRemoval( aTarget < 20231212, { "model" }, { "hide" },
                          "removed legacy-incompatible 3D model hide fields" );
+        addChildRemoval( aTarget <= 20171130, { "model" }, { "opacity" },
+                         "removed 3D model opacity fields for KiCad 5" );
         addChildRemoval( aTarget < 20230730, connectedGraphicParents, { "net" },
                          "removed PCB graphic shape net connectivity fields" );
+        addChildRemoval( aTarget < 20230730 && aTarget > 20171130, { "gr_rect", "fp_rect" },
+                         { "net" },
+                         "removed PCB graphic rectangle net connectivity fields" );
         addChildRemoval( aTarget < 20240108, { "group" }, { "locked" },
                          "removed group locked fields" );
+        addChildRemoval( aTarget <= 20171130, { "footprint", "module" }, { "group" },
+                         "removed footprint group metadata for KiCad 5" );
+        addChildRemoval( aTarget <= 20171130, { "footprint", "module" }, { "zone" },
+                         "removed footprint keepout zones for KiCad 5" );
         addChildRemoval( aTarget < 20240108, { "via" },
                          { "remove_unused_layers", "keep_end_layers", "start_end_only",
                            "zone_layer_connections" },
@@ -442,7 +773,7 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         addChildRemoval( aTarget <= 20221018, { "footprint", "module" },
                          { "net_tie_pad_groups" },
                          "removed footprint net-tie pad group fields" );
-        addChildRemoval( aTarget <= 20221018, { "footprint", "module" }, { "units" },
+        addChildRemoval( aTarget < 20250909, { "footprint", "module" }, { "units" },
                          "removed footprint unit pin grouping fields" );
         addChildRemoval( aTarget < 20250210, { "gr_text_box", "fp_text_box" },
                          { "knockout" }, "removed PCB text box knockout fields" );
@@ -528,16 +859,59 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
             // IPC-4761 child fields are already removed by the broad feature gate above.
         }
 
+        applyWhen( aTarget < 20241228,
+                   [&]()
+                   {
+                       int n = renameChildHeadInParents( aDocument.Root.get(), { "teardrops" },
+                                                         "curved_edges", "curve_points" );
+                       n += replaceAtomValuesInParents( aDocument.Root.get(), { "curve_points" },
+                                                        "no", "0" );
+                       n += replaceAtomValuesInParents( aDocument.Root.get(), { "curve_points" },
+                                                        "false", "0" );
+                       n += replaceAtomValuesInParents( aDocument.Root.get(), { "curve_points" },
+                                                        "yes", "5" );
+                       n += replaceAtomValuesInParents( aDocument.Root.get(), { "curve_points" },
+                                                        "true", "5" );
+                       return n;
+                   },
+                   "downgraded teardrop curved-edge fields to legacy curve point counts" );
+
         warnIfChanged( boardFastCounts.RemovedRootGeneratorVersion,
                        "removed board/footprint generator_version fields" );
 
         warnIfChanged( boardFastCounts.PCBFootprintFields,
                        "downgraded PCB footprint fields to legacy storage" );
 
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(),
+                                                         { "footprint", "module" },
+                                                         { "property" } );
+                   },
+                   "removed footprint properties for KiCad 5" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(),
+                                                         { "footprint", "module" },
+                                                         { "attr" } );
+                   },
+                   "removed footprint attributes for KiCad 5" );
+
         warnIfChanged( boardFastCounts.RenamedUuidToTstamp,
                        "renamed footprint uuid fields back to legacy tstamp" );
         warnIfChanged( boardFastCounts.RenamedGroupGeneratedUuidToId,
                        "renamed board group/generated uuid fields back to id" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(), { "fp_text" },
+                                                         { "tstamp", "uuid" } );
+                   },
+                   "removed footprint text ids for KiCad 5" );
 
         applyWhen( aTarget <= 20221018,
                    [&]()
@@ -559,9 +933,47 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                    [&]()
                    {
                        return unquoteAtomsInHeadedLists( aDocument.Root.get(),
-                                                        { "uuid", "tstamp", "id" }, 1 );
+                                                         { "uuid", "tstamp", "id" }, 1 );
                    },
                    "normalized PCB UUID/tstamp/id atoms for legacy parsers" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]() { return downgradePcbHeaderToLegacy5( aDocument.Root.get() ); },
+                   "downgraded PCB header and layer syntax to KiCad 5 format" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]() { return downgradeLayerRefsToLegacy5( aDocument.Root.get() ); },
+                   "mapped modern/custom PCB user layers to KiCad 5 fixed user layers" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return splitMultilayerZonesToLegacySingleLayerZones( aDocument.Root.get() );
+                   },
+                   "split multilayer PCB zones into KiCad 5 single-layer zones" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return removeNodesContainingChild( aDocument.Root.get(), "zone", "keepout" );
+                   },
+                   "removed keepout zones for KiCad 5" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(), { "setup" },
+                                               { "stackup" } );
+                   },
+                   "removed board stackup settings for KiCad 5" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]() { return renameFootprintsToModulesLegacy5( aDocument.Root.get() ); },
+                   "renamed PCB footprint nodes to KiCad 5 module nodes" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]() { return downgradePcbTstampsToLegacy5( aDocument.Root.get() ); },
+                   "shortened PCB UUID/tstamp atoms to KiCad 5 legacy IDs" );
 
         applyWhen( aTarget < 20240225,
                    [&]()
@@ -572,6 +984,9 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                                                         "solder_paste_ratio" );
                    },
                    "renamed solder_paste_margin_ratio fields to legacy solder_paste_ratio" );
+
+        applyWhen( aTarget < 20170920, [&]() { return downgradeCustomPadsToRects( aDocument.Root.get() ); },
+                   "simplified custom/rounded pads to rectangular pads for KiCad 4" );
 
         applyWhen( aTarget <= 20221018,
                    [&]()
@@ -589,6 +1004,42 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                        return downgradePCBStrokeToLegacyWidth( aDocument.Root.get() );
                    },
                    "downgraded PCB stroke blocks to legacy width fields" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return downgradePCBArcsToLegacyAngles( aDocument.Root.get() );
+                   },
+                   "downgraded PCB midpoint arcs to legacy angle fields for KiCad 5" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return downgradePCBRectsToLines( aDocument.Root.get() );
+                   },
+                   "downgraded PCB rectangles to legacy line segments for KiCad 5" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return downgradePCBTrackArcsToSegments( aDocument.Root.get() );
+                   },
+                   "approximated PCB track arcs with legacy segments for KiCad 5" );
+
+        applyWhen( aTarget < 20171114,
+                   [&]()
+                   {
+                       return downgradeModelOffsetsToLegacyAt( aDocument.Root.get() );
+                   },
+                   "downgraded 3D model offsets to KiCad 4 at fields" );
+
+        applyWhen( aTarget <= 20171130,
+                   [&]()
+                   {
+                       return removeChildrenFromParents( aDocument.Root.get(), { "filled_polygon" },
+                                                         { "layer" } );
+                   },
+                   "removed filled polygon layer fields for KiCad 5" );
 
         applyWhen( aTarget < 20250309 && aTarget >= 20240928,
                    [&]()

@@ -1,5 +1,6 @@
 #include "kicad_backport/kicad_backport_upgrade.h"
 #include "kicad_backport/kicad_backport_util.h"
+#include "internal/kicad_backport_rule_rewriters.h"
 
 #include <map>
 #include <cmath>
@@ -412,6 +413,130 @@ int upgradeBoardNetCodesToNames( SEXPR::NODE* aRoot )
 }
 
 
+int upgradePcbPageToPaper( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "kicad_pcb" )
+        return 0;
+
+    int changed = 0;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "page" )
+            continue;
+
+        if( child->SetAtomAt( 0, "paper", false ) )
+            ++changed;
+
+        if( !child->AtomAtView( 1 ).empty() && child->SetAtomAt( 1, child->AtomAt( 1 ), true ) )
+            ++changed;
+    }
+
+    return changed;
+}
+
+
+std::unique_ptr<SEXPR::NODE> xyListNode( const std::string& aHead, double aX, double aY )
+{
+    std::unique_ptr<SEXPR::NODE> node = listNode( aHead );
+    node->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aX ) ) );
+    node->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aY ) ) );
+    return node;
+}
+
+
+int upgradeLegacyArcAngles( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "fp_arc" || aRoot->HeadView() == "gr_arc" )
+    {
+        SEXPR::NODE* center = aRoot->ChildList( "start" );
+        SEXPR::NODE* start = aRoot->ChildList( "end" );
+        SEXPR::NODE* angle = aRoot->ChildList( "angle" );
+
+        if( center && start && angle && !angle->AtomAtView( 1 ).empty() )
+        {
+            double cx = toDouble( center->AtomAt( 1 ) );
+            double cy = toDouble( center->AtomAt( 2 ) );
+            double sx = toDouble( start->AtomAt( 1 ) );
+            double sy = toDouble( start->AtomAt( 2 ) );
+            double radians = toDouble( angle->AtomAt( 1 ) ) * 3.14159265358979323846 / 180.0;
+            double vx = sx - cx;
+            double vy = sy - cy;
+
+            auto rotateX = [&]( double a ) { return cx + vx * std::cos( a ) - vy * std::sin( a ); };
+            auto rotateY = [&]( double a ) { return cy + vx * std::sin( a ) + vy * std::cos( a ); };
+
+            center->SetAtomAt( 1, formatDouble( sx ), false );
+            center->SetAtomAt( 2, formatDouble( sy ), false );
+            start->SetAtomAt( 1, formatDouble( rotateX( radians ) ), false );
+            start->SetAtomAt( 2, formatDouble( rotateY( radians ) ), false );
+
+            std::unique_ptr<SEXPR::NODE> mid = xyListNode( "mid", rotateX( radians / 2.0 ),
+                                                           rotateY( radians / 2.0 ) );
+
+            for( auto it = aRoot->Children.begin(); it != aRoot->Children.end(); ++it )
+            {
+                if( it->get() == center )
+                {
+                    aRoot->Children.insert( it + 1, std::move( mid ) );
+                    break;
+                }
+            }
+
+            for( auto it = aRoot->Children.begin(); it != aRoot->Children.end(); )
+            {
+                if( it->get() == angle )
+                    it = aRoot->Children.erase( it );
+                else
+                    ++it;
+            }
+
+            ++changed;
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += upgradeLegacyArcAngles( child.get() );
+
+    return changed;
+}
+
+
+int removeLegacyGraphicLineAngles( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "fp_line" || aRoot->HeadView() == "gr_line" )
+    {
+        for( auto it = aRoot->Children.begin(); it != aRoot->Children.end(); )
+        {
+            if( *it && !( *it )->IsAtom() && ( *it )->HeadView() == "angle" )
+            {
+                it = aRoot->Children.erase( it );
+                ++changed;
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += removeLegacyGraphicLineAngles( child.get() );
+
+    return changed;
+}
+
+
 void appendWarning( std::vector<std::string>& aWarnings, int aCount, const std::string& aText )
 {
     if( aCount > 0 )
@@ -428,7 +553,7 @@ std::vector<std::string> ApplyUpgradeRules( DOCUMENT& aDocument, int aTarget )
     if( !aDocument.Root )
         return warnings;
 
-    if( aTarget < 20220228 )
+    if( aTarget < 20211014 )
         return warnings;
 
     static const std::set<std::string> schematicTstampParents = {
@@ -520,6 +645,24 @@ std::vector<std::string> ApplyUpgradeRules( DOCUMENT& aDocument, int aTarget )
     case KIND::FOOTPRINT:
     {
         int n = 0;
+
+        n = removeChildrenFromParents( aDocument.Root.get(), { "kicad_pcb" }, { "host" } );
+        appendWarning( warnings, n, "removed legacy PCB host metadata during upgrade" );
+
+        n = upgradePcbPageToPaper( aDocument.Root.get() );
+        appendWarning( warnings, n, "renamed legacy PCB page settings to paper" );
+
+        n = upgradeLegacyArcAngles( aDocument.Root.get() );
+        appendWarning( warnings, n, "upgraded legacy PCB arc angle fields to midpoint arcs" );
+
+        n = removeLegacyGraphicLineAngles( aDocument.Root.get() );
+        appendWarning( warnings, n, "removed legacy PCB line angle fields" );
+
+        n = RULE_REWRITERS::ensureZoneFilledAreasThickness( aDocument.Root.get() );
+        appendWarning( warnings, n, "tagged legacy cached zone fills as polygon fills" );
+
+        n = RULE_REWRITERS::ensureZoneFilledPolygonLayers( aDocument.Root.get() );
+        appendWarning( warnings, n, "added zone layers to legacy cached polygon fills" );
 
         if( aTarget >= 20231231 )
         {

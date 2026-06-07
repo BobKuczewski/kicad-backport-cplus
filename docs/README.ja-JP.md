@@ -25,7 +25,7 @@ KiCad バックポート ダウングレード CLI のスタンドアロン C++1
 直接と Python プラグインからの両方で使用できます。
 
 ```text
-kicad-backport convert --target-version <6.0|7.0|8.0|9.0|10.0|number> [--report report.json] <input> <output>
+kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport version
 ```
@@ -41,23 +41,24 @@ kicad-backport version
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
 ```
 
-サポートされているリリース エイリアスは、`6.0`、`7.0`、`8.0`、`9.0`、および `10.0` です。生の
-KiCad ファイル形式のバージョン番号は、特定のファイルをテストするときに渡すこともできます。
-パーサーのカットオフ。
+サポートされているリリース エイリアスは、`4.0`、`5.0`、`5.1`、`6.0`、`7.0`、
+`8.0`、`9.0`、`10.0`、および `10.99` です。特定のパーサー境界をテストする場合は、
+KiCad ファイル形式の生のバージョン番号も渡せます。
 
 ## サポート状況
 
-現在の実装は、KiCad 6 から KiCad 10 までの S 式ファイルをターゲットとしています。
-家族:
+現在の実装は、KiCad 4 から KiCad 10 までのファイル ファミリを対象としています。
 
 | ターゲット | 状態 |
 | --- | --- |
 | KiCad 10 | 20260521 パッド `sim_electrical_type` および 20260603 テーブルセル `knockout` を含む、10.0 後/現在の開発構文を削除します。 |
+| KiCad 10.99 | 現在の開発版 board/footprint ターゲットです。board と footprint は `20260603` を書き、symbol library と schematic は KiCad 10 ターゲット版（`20251024` / `20260306`）を引き続き使用します。 |
 | KiCad9 | バリアント、バーコード、バックドリル/ポストマシニング、ジャンパー パッド、ネットコード省略などの KiCad 10/現在の​​機能を削除またはダウングレードします。 |
 | KiCad8 | KiCad 9+ テーブル、埋め込みファイル、コンポーネント クラス、パッドスタック、ビア スタック、ルール領域、および任意のユーザー層フォームを削除します。 |
 | KiCad7 | UUID/tstamp フォーム、PCB フットプリント フィールド、ティアドロップ、生成されたオブジェクト、イメージ、およびテキスト ボックスに古いパーサー互換性の書き換えを適用します。 |
 | KiCad 6 | 基本的なファイルのダウングレードのサポートはほぼ完了しました。変換されたテスト プロジェクトは、検証のために実際の KiCad 6 アプリケーションで手動で開かれました。 |
-| KiCad 5 以前 | まだ実装されていません。コードでは、将来の V5 サポートに備えて、レガシー ドキュメントの検出、パス マッピング、およびアップグレード/ダウングレード ルールが分離されるようになりました。 |
+| KiCad 5 | board/footprint のターゲット version `20171130` と、legacy `.sch`、`.lib`、`.dcm`、`.pro` の基本的な import/export をサポートします。詳細な schematic オブジェクト、symbol 描画プリミティブ、pin はまだロッシーで、warning として報告されます。 |
+| KiCad 4 | board/footprint のターゲット version `4`、V4 legacy schematic/library ヘッダーの書き換え、V4 出力 suffix/extension をサポートします。custom pad などの V5-only PCB 機能は可能な範囲で簡略化されます。 |
 
 ## ダウングレードポリシー
 

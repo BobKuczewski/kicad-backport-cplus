@@ -1,5 +1,6 @@
 #include "kicad_backport/kicad_backport.h"
 #include "kicad_backport/kicad_backport_legacy.h"
+#include "kicad_backport/kicad_backport_pathmap.h"
 #include "kicad_backport/kicad_backport_report.h"
 #include "kicad_backport/kicad_backport_rules.h"
 #include "kicad_backport/kicad_backport_upgrade.h"
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <atomic>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -57,6 +59,48 @@ bool isLibraryTablePath( const std::filesystem::path& aPath )
 }
 
 
+std::string resolveDocumentTargetVersion( const DOCUMENT& aDocument, const std::string& aTarget )
+{
+    std::string resolved = ResolveTargetVersion( aDocument.Kind, aTarget );
+
+    if( IsNumber( aTarget ) && IsNumber( aDocument.Version ) && IsNumber( resolved ) )
+    {
+        int source = std::stoi( aDocument.Version );
+        int target = std::stoi( resolved );
+
+        if( source > 0 && source < target )
+            return aDocument.Version;
+    }
+
+    return resolved;
+}
+
+
+std::filesystem::path withTargetFamilyExtension( const std::filesystem::path& aPath,
+                                                 const std::string& aTarget )
+{
+    int targetMajor = TargetMajorVersion( aTarget );
+    KIND sourceKind = DetectKind( aPath, std::string() );
+
+    if( targetMajor <= 5 )
+    {
+        KIND legacyKind = LegacyKindForSexprKind( sourceKind );
+
+        if( legacyKind != KIND::UNKNOWN )
+            return WithTargetExtension( aPath, legacyKind );
+
+        return aPath;
+    }
+
+    KIND sexprKind = SexprKindForLegacyKind( sourceKind );
+
+    if( sexprKind != KIND::UNKNOWN )
+        return WithTargetExtension( aPath, sexprKind );
+
+    return aPath;
+}
+
+
 int removeDirectChildByHead( SEXPR::NODE* aRoot, const std::string& aHead )
 {
     if( !aRoot || aRoot->IsAtom() )
@@ -82,13 +126,81 @@ int removeDirectChildByHead( SEXPR::NODE* aRoot, const std::string& aHead )
 }
 
 
-void normalizeLegacyLibraryTable( const std::filesystem::path& aPath )
+std::string replaceTrailingText( const std::string& aValue, const std::string& aFrom,
+                                 const std::string& aTo )
 {
-    std::string text = ReadTextFile( aPath );
-    std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( text );
+    if( !EndsWith( Lower( aValue ), Lower( aFrom ) ) )
+        return aValue;
 
-    if( removeDirectChildByHead( root.get(), "version" ) > 0 )
-        WriteTextFile( aPath, SEXPR::Format( root.get(), text.size() ) );
+    return aValue.substr( 0, aValue.size() - aFrom.size() ) + aTo;
+}
+
+
+int normalizeLegacySymbolLibraryTableEntries( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "sym_lib_table" )
+        return 0;
+
+    int changed = 0;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "lib" )
+            continue;
+
+        if( SEXPR::NODE* type = child->ChildList( "type" ) )
+        {
+            if( type->SetAtomAt( 1, "Legacy", true ) )
+                ++changed;
+        }
+
+        if( SEXPR::NODE* uri = child->ChildList( "uri" ) )
+        {
+            std::string mapped = replaceTrailingText( uri->AtomAt( 1 ), ".kicad_sym", ".lib" );
+
+            if( mapped != uri->AtomAt( 1 ) && uri->SetAtomAt( 1, mapped, true ) )
+                ++changed;
+        }
+    }
+
+    return changed;
+}
+
+
+FILE_REPORT normalizeLegacyLibraryTable( const std::filesystem::path& aPath, int aTargetMajor )
+{
+    FILE_REPORT report;
+    report.Path = aPath.string();
+    report.InputPath = aPath.string();
+    report.OutputPath = aPath.string();
+    report.Kind = "library-table";
+    report.SourceKind = "library-table";
+    report.TargetKind = "library-table";
+    report.SourceVersion = "project-local";
+    report.TargetVersion = aTargetMajor <= 5 ? "legacy-compatible" : "modern-compatible";
+
+    try
+    {
+        std::string text = ReadTextFile( aPath );
+        std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( text );
+        int changed = removeDirectChildByHead( root.get(), "version" );
+
+        if( aTargetMajor <= 5 )
+            changed += normalizeLegacySymbolLibraryTableEntries( root.get() );
+
+        if( changed > 0 )
+        {
+            WriteTextFile( aPath, SEXPR::Format( root.get(), text.size() ) );
+            report.Changed = true;
+        }
+    }
+    catch( const std::exception& e )
+    {
+        report.Warnings.push_back( std::string( "could not normalize project library table: " )
+                                   + e.what() );
+    }
+
+    return report;
 }
 
 
@@ -100,11 +212,770 @@ std::unique_ptr<SEXPR::NODE> listNode( const std::string& aHead )
 }
 
 
+std::unique_ptr<SEXPR::NODE> cloneNode( const SEXPR::NODE* aNode )
+{
+    if( !aNode )
+        return nullptr;
+
+    if( aNode->IsAtom() )
+        return SEXPR::NODE::MakeAtom( std::string( aNode->Atom ), aNode->Quoted );
+
+    std::unique_ptr<SEXPR::NODE> clone = SEXPR::NODE::MakeList();
+    clone->Children.reserve( aNode->Children.size() );
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
+        clone->Children.push_back( cloneNode( child.get() ) );
+
+    return clone;
+}
+
+
 std::string childAtomOrEmpty( SEXPR::NODE* aNode, const std::string& aHead,
                               size_t aIndex = 1 )
 {
     SEXPR::NODE* child = aNode ? aNode->ChildList( aHead ) : nullptr;
     return child ? child->AtomAt( aIndex ) : "";
+}
+
+
+std::string footprintLibraryNickname( const std::string& aLibId )
+{
+    std::string::size_type sep = aLibId.find( ':' );
+
+    if( sep == std::string::npos || sep == 0 )
+        return "";
+
+    return aLibId.substr( 0, sep );
+}
+
+
+std::string footprintLibraryFootprintName( const std::string& aLibId )
+{
+    std::string::size_type sep = aLibId.find( ':' );
+
+    if( sep == std::string::npos || sep + 1 >= aLibId.size() )
+        return "";
+
+    return aLibId.substr( sep + 1 );
+}
+
+
+bool projectLocalFootprintExists( const std::filesystem::path& aProjectDir,
+                                  const std::string& aFootprintName )
+{
+    if( aFootprintName.empty() )
+        return false;
+
+    return std::filesystem::exists( aProjectDir / "Library.pretty"
+                                    / ( aFootprintName + ".kicad_mod" ) );
+}
+
+
+void collectProjectLocalFootprintNicknames( SEXPR::NODE* aNode,
+                                            const std::filesystem::path& aProjectDir,
+                                            std::set<std::string>& aNicknames )
+{
+    if( !aNode || aNode->IsAtom() )
+        return;
+
+    std::string head = aNode->Head();
+
+    if( head == "footprint" || head == "module" )
+    {
+        std::string libId = aNode->AtomAt( 1 );
+        std::string nickname = footprintLibraryNickname( libId );
+        std::string footprint = footprintLibraryFootprintName( libId );
+
+        if( !nickname.empty() && projectLocalFootprintExists( aProjectDir, footprint ) )
+            aNicknames.insert( nickname );
+    }
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
+        collectProjectLocalFootprintNicknames( child.get(), aProjectDir, aNicknames );
+}
+
+
+std::set<std::string> collectProjectLocalFootprintNicknames(
+        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
+{
+    std::set<std::string> nicknames;
+
+    if( !std::filesystem::is_directory( aProjectDir / "Library.pretty" ) )
+        return nicknames;
+
+    for( const PROJECT_COPY_ENTRY& entry : aCopied )
+    {
+        if( !entry.IsDocument || Lower( entry.Output.extension().string() ) != ".kicad_pcb"
+            || entry.Output.parent_path() != aProjectDir )
+        {
+            continue;
+        }
+
+        try
+        {
+            std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( ReadTextFile( entry.Output ) );
+            collectProjectLocalFootprintNicknames( root.get(), aProjectDir, nicknames );
+        }
+        catch( ... )
+        {
+        }
+    }
+
+    return nicknames;
+}
+
+
+std::unique_ptr<SEXPR::NODE> libraryTableField( const std::string& aHead,
+                                                const std::string& aValue )
+{
+    std::unique_ptr<SEXPR::NODE> field = listNode( aHead );
+    field->Children.push_back( SEXPR::NODE::MakeAtom( aValue, true ) );
+    return field;
+}
+
+
+std::unique_ptr<SEXPR::NODE> projectLocalFootprintLibraryEntry( const std::string& aNickname )
+{
+    std::unique_ptr<SEXPR::NODE> lib = listNode( "lib" );
+    lib->Children.push_back( libraryTableField( "name", aNickname ) );
+    lib->Children.push_back( libraryTableField( "type", "KiCad" ) );
+    lib->Children.push_back( libraryTableField( "uri", "${KIPRJMOD}/Library.pretty" ) );
+    lib->Children.push_back( libraryTableField( "options", "" ) );
+    lib->Children.push_back( libraryTableField( "descr", "" ) );
+    return lib;
+}
+
+
+std::unique_ptr<SEXPR::NODE> projectLocalSymbolLibraryEntry( const std::string& aNickname,
+                                                             const std::string& aUri )
+{
+    std::unique_ptr<SEXPR::NODE> lib = listNode( "lib" );
+    lib->Children.push_back( libraryTableField( "name", aNickname ) );
+    lib->Children.push_back( libraryTableField( "type", "KiCad" ) );
+    lib->Children.push_back( libraryTableField( "uri", aUri ) );
+    lib->Children.push_back( libraryTableField( "options", "" ) );
+    lib->Children.push_back( libraryTableField( "descr", "" ) );
+    return lib;
+}
+
+
+std::string projectLibraryUri( const std::filesystem::path& aProjectDir,
+                               const std::filesystem::path& aLibraryPath )
+{
+    std::error_code error;
+    std::filesystem::path rel = std::filesystem::relative( aLibraryPath, aProjectDir, error );
+
+    if( error )
+        rel = aLibraryPath.filename();
+
+    return "${KIPRJMOD}/" + rel.generic_string();
+}
+
+
+std::map<std::string, std::string> collectProjectLocalSymbolLibraries(
+        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
+        const std::set<std::string>& aAllowedNicknames = {}, bool aFilterNicknames = false )
+{
+    std::map<std::string, std::string> libraries;
+
+    for( const PROJECT_COPY_ENTRY& entry : aCopied )
+    {
+        if( !entry.IsDocument || Lower( entry.Output.extension().string() ) != ".kicad_sym"
+            || entry.Output.parent_path() != aProjectDir )
+        {
+            continue;
+        }
+
+        std::string nickname = entry.Output.stem().string();
+
+        if( aFilterNicknames && aAllowedNicknames.count( nickname ) == 0 )
+            continue;
+
+        libraries[nickname] = projectLibraryUri( aProjectDir, entry.Output );
+    }
+
+    return libraries;
+}
+
+
+std::map<std::string, std::filesystem::path> collectProjectLocalSymbolLibraryPaths(
+        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
+{
+    std::map<std::string, std::filesystem::path> libraries;
+
+    for( const PROJECT_COPY_ENTRY& entry : aCopied )
+    {
+        if( !entry.IsDocument || Lower( entry.Output.extension().string() ) != ".kicad_sym"
+            || entry.Output.parent_path() != aProjectDir )
+        {
+            continue;
+        }
+
+        libraries[entry.Output.stem().string()] = entry.Output;
+    }
+
+    return libraries;
+}
+
+
+std::string symbolLibraryNicknameFromLibId( const std::string& aLibId )
+{
+    std::string::size_type sep = aLibId.find( ':' );
+
+    if( sep == std::string::npos || sep == 0 )
+        return "";
+
+    return aLibId.substr( 0, sep );
+}
+
+
+std::string symbolLibrarySymbolNameFromLibId( const std::string& aLibId )
+{
+    std::string::size_type sep = aLibId.find( ':' );
+
+    if( sep == std::string::npos || sep + 1 >= aLibId.size() )
+        return "";
+
+    return aLibId.substr( sep + 1 );
+}
+
+
+void collectSchematicLibIds( SEXPR::NODE* aNode, std::set<std::string>& aLibIds )
+{
+    if( !aNode || aNode->IsAtom() )
+        return;
+
+    if( aNode->HeadView() == "symbol" )
+    {
+        std::string libId = childAtomOrEmpty( aNode, "lib_id" );
+
+        if( !libId.empty() )
+            aLibIds.insert( libId );
+    }
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
+        collectSchematicLibIds( child.get(), aLibIds );
+}
+
+
+std::set<std::string> collectReferencedSchematicLibraryNicknames(
+        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
+{
+    std::set<std::string> nicknames;
+
+    for( const PROJECT_COPY_ENTRY& entry : aCopied )
+    {
+        if( !entry.IsDocument || Lower( entry.Output.extension().string() ) != ".kicad_sch"
+            || entry.Output.parent_path() != aProjectDir )
+        {
+            continue;
+        }
+
+        try
+        {
+            std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( ReadTextFile( entry.Output ) );
+            std::set<std::string> libIds;
+            collectSchematicLibIds( root.get(), libIds );
+
+            for( const std::string& libId : libIds )
+            {
+                std::string nickname = symbolLibraryNicknameFromLibId( libId );
+
+                if( !nickname.empty() )
+                    nicknames.insert( nickname );
+            }
+        }
+        catch( ... )
+        {
+        }
+    }
+
+    return nicknames;
+}
+
+
+SEXPR::NODE* ensureSchematicLibSymbolsNode( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "kicad_sch" )
+        return nullptr;
+
+    SEXPR::NODE* existing = aRoot->ChildList( "lib_symbols" );
+
+    if( existing )
+    {
+        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> children( existing->Children.get_allocator() );
+        children.push_back( SEXPR::NODE::MakeAtom( "lib_symbols" ) );
+        existing->Children = std::move( children );
+        return existing;
+    }
+
+    std::unique_ptr<SEXPR::NODE> libSymbols = listNode( "lib_symbols" );
+    SEXPR::NODE* raw = libSymbols.get();
+    size_t insertAt = std::min<size_t>( 4, aRoot->Children.size() );
+    aRoot->Children.insert( aRoot->Children.begin() + insertAt, std::move( libSymbols ) );
+    return raw;
+}
+
+
+std::string makeSymbolLibId( const std::string& aNickname, const std::string& aSymbolName )
+{
+    if( aNickname.empty() || aSymbolName.empty() )
+        return "";
+
+    return aNickname + ":" + aSymbolName;
+}
+
+
+bool splitSymbolLibId( const std::string& aLibId, std::string& aNickname,
+                       std::string& aSymbolName )
+{
+    std::string::size_type sep = aLibId.find( ':' );
+
+    if( sep == std::string::npos || sep == 0 || sep + 1 >= aLibId.size() )
+        return false;
+
+    aNickname = aLibId.substr( 0, sep );
+    aSymbolName = aLibId.substr( sep + 1 );
+    return true;
+}
+
+
+const SEXPR::NODE* resolvedProjectLocalSymbolSource(
+        const std::map<std::string, std::map<std::string, std::unique_ptr<SEXPR::NODE>>>&
+                aSymbolsByLibrary,
+        const std::string& aNickname, const std::string& aSymbolName,
+        std::set<std::string>& aVisitingLibIds )
+{
+    std::string libId = makeSymbolLibId( aNickname, aSymbolName );
+
+    if( libId.empty() || aVisitingLibIds.count( libId ) != 0 )
+        return nullptr;
+
+    auto libraryIt = aSymbolsByLibrary.find( aNickname );
+
+    if( libraryIt == aSymbolsByLibrary.end() )
+        return nullptr;
+
+    auto symbolIt = libraryIt->second.find( aSymbolName );
+
+    if( symbolIt == libraryIt->second.end() )
+        return nullptr;
+
+    const SEXPR::NODE* symbol = symbolIt->second.get();
+    SEXPR::NODE* extends = symbolIt->second ? symbolIt->second->ChildList( "extends" )
+                                            : nullptr;
+
+    if( !extends || extends->AtomAtView( 1 ).empty() )
+        return symbol;
+
+    std::string parentNickname = aNickname;
+    std::string parentName = extends->AtomAt( 1 );
+
+    splitSymbolLibId( parentName, parentNickname, parentName );
+
+    aVisitingLibIds.insert( libId );
+    const SEXPR::NODE* parent = resolvedProjectLocalSymbolSource( aSymbolsByLibrary,
+                                                                  parentNickname,
+                                                                  parentName,
+                                                                  aVisitingLibIds );
+    aVisitingLibIds.erase( libId );
+
+    return parent ? parent : symbol;
+}
+
+
+void setSymbolValueProperty( SEXPR::NODE* aSymbol, const std::string& aValue )
+{
+    if( !aSymbol )
+        return;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aSymbol->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "property"
+            && child->AtomAt( 1 ) == "Value" )
+        {
+            child->SetAtomAt( 2, aValue, true );
+            return;
+        }
+    }
+}
+
+
+void renameNestedSymbolDefinitions( SEXPR::NODE* aNode, const std::string& aOldName,
+                                    const std::string& aNewName )
+{
+    if( !aNode || aNode->IsAtom() || aOldName.empty() || aNewName.empty() )
+        return;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
+    {
+        if( !child || child->IsAtom() )
+            continue;
+
+        if( child->HeadView() == "symbol" )
+        {
+            std::string name = child->AtomAt( 1 );
+
+            if( name.size() > aOldName.size() && name.substr( 0, aOldName.size() ) == aOldName
+                && name[aOldName.size()] == '_' )
+            {
+                child->SetAtomAt( 1, aNewName + name.substr( aOldName.size() ), true );
+            }
+
+            if( SEXPR::NODE* extends = child->ChildList( "extends" ) )
+            {
+                std::string parent = extends->AtomAt( 1 );
+
+                if( parent.size() > aOldName.size()
+                    && parent.substr( 0, aOldName.size() ) == aOldName
+                    && parent[aOldName.size()] == '_' )
+                {
+                    extends->SetAtomAt( 1, aNewName + parent.substr( aOldName.size() ), true );
+                }
+            }
+        }
+
+        renameNestedSymbolDefinitions( child.get(), aOldName, aNewName );
+    }
+}
+
+
+bool embedProjectLocalSchematicSymbol(
+        const std::map<std::string, std::map<std::string, std::unique_ptr<SEXPR::NODE>>>&
+                aSymbolsByLibrary,
+        const std::string& aNickname, const std::string& aSymbolName,
+        SEXPR::NODE* aLibSymbols, std::set<std::string>& aEmbeddedLibIds,
+        int& aAdded )
+{
+    std::string libId = makeSymbolLibId( aNickname, aSymbolName );
+
+    if( libId.empty() || aEmbeddedLibIds.count( libId ) != 0 )
+        return true;
+
+    std::set<std::string> visitingLibIds;
+    const SEXPR::NODE* source = resolvedProjectLocalSymbolSource( aSymbolsByLibrary, aNickname,
+                                                                  aSymbolName,
+                                                                  visitingLibIds );
+
+    if( !source )
+        return false;
+
+    std::unique_ptr<SEXPR::NODE> embedded = cloneNode( source );
+    removeDirectChildByHead( embedded.get(), "extends" );
+    std::string oldName = embedded ? embedded->AtomAt( 1 ) : "";
+
+    if( embedded && embedded->SetAtomAt( 1, libId, true ) )
+    {
+        renameNestedSymbolDefinitions( embedded.get(), oldName, aSymbolName );
+        setSymbolValueProperty( embedded.get(), aSymbolName );
+        aLibSymbols->Children.push_back( std::move( embedded ) );
+        aEmbeddedLibIds.insert( libId );
+        ++aAdded;
+    }
+
+    return true;
+}
+
+
+int embedProjectLocalSchematicSymbols(
+        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
+        std::vector<std::string>& aWarnings )
+{
+    std::map<std::string, std::filesystem::path> libraries =
+            collectProjectLocalSymbolLibraryPaths( aProjectDir, aCopied );
+
+    if( libraries.empty() )
+        return 0;
+
+    std::map<std::string, std::map<std::string, std::unique_ptr<SEXPR::NODE>>> symbolsByLibrary;
+
+    for( const auto& library : libraries )
+    {
+        try
+        {
+            std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( ReadTextFile( library.second ) );
+
+            if( !root || root->HeadView() != "kicad_symbol_lib" )
+                continue;
+
+            for( SEXPR::NODE* symbol : root->ChildLists( "symbol" ) )
+            {
+                std::string name = symbol ? symbol->AtomAt( 1 ) : "";
+
+                if( !name.empty() )
+                    symbolsByLibrary[library.first][name] = cloneNode( symbol );
+            }
+        }
+        catch( const std::exception& e )
+        {
+            aWarnings.push_back( "could not read generated symbol library "
+                                 + library.second.string() + ": " + e.what() );
+        }
+    }
+
+    int changed = 0;
+
+    for( const PROJECT_COPY_ENTRY& entry : aCopied )
+    {
+        if( !entry.IsDocument || Lower( entry.Output.extension().string() ) != ".kicad_sch"
+            || entry.Output.parent_path() != aProjectDir )
+        {
+            continue;
+        }
+
+        try
+        {
+            std::string text = ReadTextFile( entry.Output );
+            std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( text );
+            std::set<std::string> libIds;
+            collectSchematicLibIds( root.get(), libIds );
+
+            SEXPR::NODE* libSymbols = ensureSchematicLibSymbolsNode( root.get() );
+
+            if( !libSymbols )
+                continue;
+
+            int added = 0;
+            std::set<std::string> embeddedLibIds;
+
+            for( const std::string& libId : libIds )
+            {
+                std::string nickname = symbolLibraryNicknameFromLibId( libId );
+                std::string symbolName = symbolLibrarySymbolNameFromLibId( libId );
+                embedProjectLocalSchematicSymbol( symbolsByLibrary, nickname, symbolName,
+                                                  libSymbols, embeddedLibIds, added );
+            }
+
+            if( added > 0 )
+            {
+                WriteTextFile( entry.Output, SEXPR::Format( root.get(), text.size() ) );
+                ++changed;
+            }
+        }
+        catch( const std::exception& e )
+        {
+            aWarnings.push_back( "could not embed generated schematic symbols in "
+                                 + entry.Output.string() + ": " + e.what() );
+        }
+    }
+
+    return changed;
+}
+
+
+int addProjectLocalSymbolLibraries( SEXPR::NODE* aRoot,
+                                    const std::map<std::string, std::string>& aLibraries )
+{
+    if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "sym_lib_table" )
+        return 0;
+
+    std::map<std::string, SEXPR::NODE*> existing;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "lib" )
+            continue;
+
+        std::string name = childAtomOrEmpty( child.get(), "name" );
+
+        if( !name.empty() )
+            existing[name] = child.get();
+    }
+
+    int changed = 0;
+
+    for( const auto& library : aLibraries )
+    {
+        auto found = existing.find( library.first );
+
+        if( found != existing.end() )
+        {
+            SEXPR::NODE* lib = found->second;
+
+            if( SEXPR::NODE* type = lib->ChildList( "type" ) )
+            {
+                if( type->SetAtomAt( 1, "KiCad", true ) )
+                    ++changed;
+            }
+            else
+            {
+                lib->Children.push_back( libraryTableField( "type", "KiCad" ) );
+                ++changed;
+            }
+
+            if( SEXPR::NODE* uri = lib->ChildList( "uri" ) )
+            {
+                if( uri->SetAtomAt( 1, library.second, true ) )
+                    ++changed;
+            }
+            else
+            {
+                lib->Children.push_back( libraryTableField( "uri", library.second ) );
+                ++changed;
+            }
+
+            continue;
+        }
+
+        aRoot->Children.push_back( projectLocalSymbolLibraryEntry( library.first,
+                                                                    library.second ) );
+        existing[library.first] = aRoot->Children.back().get();
+        ++changed;
+    }
+
+    return changed;
+}
+
+
+FILE_REPORT ensureProjectLocalSymbolLibraryTable(
+        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
+        int aTargetMajor )
+{
+    FILE_REPORT report;
+    std::filesystem::path tablePath = aProjectDir / "sym-lib-table";
+    report.Path = tablePath.string();
+    report.InputPath = tablePath.string();
+    report.OutputPath = tablePath.string();
+    report.Kind = "library-table";
+    report.SourceKind = "library-table";
+    report.TargetKind = "library-table";
+    report.SourceVersion = "project-local";
+    report.TargetVersion = "modern-compatible";
+
+    std::set<std::string> referencedNicknames;
+
+    if( aTargetMajor > 5 )
+        referencedNicknames = collectReferencedSchematicLibraryNicknames( aProjectDir, aCopied );
+
+    std::map<std::string, std::string> libraries =
+            collectProjectLocalSymbolLibraries( aProjectDir, aCopied, referencedNicknames,
+                                                aTargetMajor > 5 );
+
+    if( libraries.empty() )
+        return report;
+
+    try
+    {
+        std::unique_ptr<SEXPR::NODE> root;
+        std::string existingText;
+
+        if( aTargetMajor > 5 )
+        {
+            root = listNode( "sym_lib_table" );
+
+            if( aTargetMajor >= 7 )
+            {
+                std::unique_ptr<SEXPR::NODE> version = listNode( "version" );
+                version->Children.push_back( SEXPR::NODE::MakeAtom( "7" ) );
+                root->Children.push_back( std::move( version ) );
+            }
+        }
+        else if( std::filesystem::exists( tablePath ) )
+        {
+            existingText = ReadTextFile( tablePath );
+            root = SEXPR::Parse( existingText );
+        }
+        else
+        {
+            root = listNode( "sym_lib_table" );
+
+            if( aTargetMajor >= 7 )
+            {
+                std::unique_ptr<SEXPR::NODE> version = listNode( "version" );
+                version->Children.push_back( SEXPR::NODE::MakeAtom( "7" ) );
+                root->Children.push_back( std::move( version ) );
+            }
+        }
+
+        if( aTargetMajor <= 6 )
+            removeDirectChildByHead( root.get(), "version" );
+
+        int changed = addProjectLocalSymbolLibraries( root.get(), libraries );
+
+        if( changed > 0 || existingText.empty() || aTargetMajor > 5 )
+        {
+            WriteTextFile( tablePath, SEXPR::Format( root.get(), existingText.size() + 512 ) );
+            report.Changed = true;
+            report.Warnings.push_back( "wrote project-local symbol library table for generated .kicad_sym files" );
+        }
+    }
+    catch( const std::exception& e )
+    {
+        report.Warnings.push_back( std::string( "could not write project-local symbol library table: " )
+                                   + e.what() );
+    }
+
+    return report;
+}
+
+
+int addProjectLocalFootprintLibraryAliases( SEXPR::NODE* aRoot,
+                                            const std::set<std::string>& aNicknames )
+{
+    if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "fp_lib_table" )
+        return 0;
+
+    std::set<std::string> existing;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "lib" )
+            continue;
+
+        std::string name = childAtomOrEmpty( child.get(), "name" );
+
+        if( !name.empty() )
+            existing.insert( name );
+    }
+
+    int changed = 0;
+
+    for( const std::string& nickname : aNicknames )
+    {
+        if( existing.count( nickname ) != 0 )
+            continue;
+
+        aRoot->Children.push_back( projectLocalFootprintLibraryEntry( nickname ) );
+        existing.insert( nickname );
+        ++changed;
+    }
+
+    return changed;
+}
+
+
+int ensureLegacyFootprintLibraryAliases( const std::filesystem::path& aTablePath,
+                                         const std::vector<PROJECT_COPY_ENTRY>& aCopied,
+                                         int aTargetMajor,
+                                         std::vector<std::string>& aWarnings )
+{
+    if( aTargetMajor > 5 || Lower( aTablePath.filename().string() ) != "fp-lib-table" )
+        return 0;
+
+    std::filesystem::path projectDir = aTablePath.parent_path();
+    std::set<std::string> nicknames = collectProjectLocalFootprintNicknames( projectDir, aCopied );
+
+    if( nicknames.empty() )
+        return 0;
+
+    try
+    {
+        std::string text = ReadTextFile( aTablePath );
+        std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( text );
+        int changed = addProjectLocalFootprintLibraryAliases( root.get(), nicknames );
+
+        if( changed > 0 )
+            WriteTextFile( aTablePath, SEXPR::Format( root.get(), text.size() ) );
+
+        return changed;
+    }
+    catch( const std::exception& e )
+    {
+        aWarnings.push_back( std::string( "could not add project-local footprint aliases: " )
+                             + e.what() );
+    }
+
+    return 0;
 }
 
 
@@ -123,6 +994,37 @@ std::string schematicPropertyValue( SEXPR::NODE* aNode, const std::string& aName
     }
 
     return "";
+}
+
+
+std::string normalizedHiddenInstanceReference( const std::string& aReference,
+                                               const std::string& aValue )
+{
+    if( aReference.size() < 3 || aReference[0] != '#' || aReference[1] != 'U' )
+        return aReference;
+
+    size_t suffixStart = 2;
+
+    while( suffixStart < aReference.size()
+           && !std::isdigit( static_cast<unsigned char>( aReference[suffixStart] ) ) )
+    {
+        ++suffixStart;
+    }
+
+    std::string suffix = suffixStart < aReference.size()
+            ? aReference.substr( suffixStart ) : std::string();
+
+    if( aValue == "PWR_FLAG" )
+        return "#FLG" + suffix;
+
+    if( !aValue.empty() && ( aValue[0] == '+' || aValue[0] == '-' || aValue == "GND"
+                             || aValue == "VCC" || aValue == "VDD"
+                             || aValue == "VSS" ) )
+    {
+        return "#PWR" + suffix;
+    }
+
+    return aReference;
 }
 
 
@@ -180,15 +1082,94 @@ std::unique_ptr<SEXPR::NODE> symbolInstanceNode( const std::string& aPath,
     if( unit.empty() )
         unit = "1";
 
-    appendQuoted( "reference", schematicPropertyValue( aSymbol, "Reference" ) );
+    std::string value = schematicPropertyValue( aSymbol, "Value" );
+    appendQuoted( "reference", normalizedHiddenInstanceReference(
+                          schematicPropertyValue( aSymbol, "Reference" ), value ) );
 
     std::unique_ptr<SEXPR::NODE> unitNode = listNode( "unit" );
     unitNode->Children.push_back( SEXPR::NODE::MakeAtom( unit ) );
     node->Children.push_back( std::move( unitNode ) );
 
-    appendQuoted( "value", schematicPropertyValue( aSymbol, "Value" ) );
+    appendQuoted( "value", value );
     appendQuoted( "footprint", schematicPropertyValue( aSymbol, "Footprint" ) );
     return node;
+}
+
+
+std::string uniquifiedReference( const std::string& aReference, int aDuplicateIndex )
+{
+    if( aDuplicateIndex <= 0 || aReference.empty() )
+        return aReference;
+
+    size_t digitStart = 0;
+
+    while( digitStart < aReference.size()
+           && !std::isdigit( static_cast<unsigned char>( aReference[digitStart] ) ) )
+    {
+        ++digitStart;
+    }
+
+    if( digitStart >= aReference.size() )
+        return aReference + std::to_string( aDuplicateIndex + 1 );
+
+    size_t digitEnd = digitStart;
+
+    while( digitEnd < aReference.size()
+           && std::isdigit( static_cast<unsigned char>( aReference[digitEnd] ) ) )
+    {
+        ++digitEnd;
+    }
+
+    int number = 0;
+
+    try
+    {
+        number = std::stoi( aReference.substr( digitStart, digitEnd - digitStart ) );
+    }
+    catch( const std::exception& )
+    {
+        return aReference + std::to_string( aDuplicateIndex + 1 );
+    }
+
+    return aReference.substr( 0, digitStart )
+           + std::to_string( number + aDuplicateIndex * 1000 )
+           + aReference.substr( digitEnd );
+}
+
+
+void uniquifyRepeatedSymbolInstanceReferences( SEXPR::NODE* aSymbolInstances )
+{
+    if( !aSymbolInstances || aSymbolInstances->IsAtom()
+        || aSymbolInstances->HeadView() != "symbol_instances" )
+    {
+        return;
+    }
+
+    std::map<std::string, int> seen;
+    std::set<std::string> used;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aSymbolInstances->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "path" )
+            continue;
+
+        SEXPR::NODE* reference = child->ChildList( "reference" );
+
+        if( !reference )
+            continue;
+
+        std::string original = reference->AtomAt( 1 );
+        int duplicateIndex = seen[original]++;
+        std::string candidate = uniquifiedReference( original, duplicateIndex );
+
+        while( used.count( candidate ) != 0 )
+            candidate = uniquifiedReference( original, ++duplicateIndex );
+
+        if( candidate != original )
+            reference->SetAtomAt( 1, candidate, true );
+
+        used.insert( candidate );
+    }
 }
 
 
@@ -240,10 +1221,31 @@ struct SCH_HIERARCHY_INSTANCE_BUILD
     std::unique_ptr<SEXPR::NODE> SheetInstances = listNode( "sheet_instances" );
     std::unique_ptr<SEXPR::NODE> SymbolInstances = listNode( "symbol_instances" );
     std::map<std::string, std::string> ExistingPages;
+    std::map<std::string, std::unique_ptr<SEXPR::NODE>> ExistingSymbols;
     std::set<std::string> AddedSheetPaths;
     std::set<std::string> ActiveFiles;
     int NextPage = 2;
 };
+
+
+void collectExistingSymbolInstances( SEXPR::NODE* aRoot, SCH_HIERARCHY_INSTANCE_BUILD& aBuild )
+{
+    SEXPR::NODE* symbolInstances = aRoot ? aRoot->ChildList( "symbol_instances" ) : nullptr;
+
+    if( !symbolInstances )
+        return;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : symbolInstances->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "path" )
+            continue;
+
+        std::string path = child->AtomAt( 1 );
+
+        if( !path.empty() && aBuild.ExistingSymbols.count( path ) == 0 )
+            aBuild.ExistingSymbols[path] = cloneNode( child.get() );
+    }
+}
 
 
 void collectKiCad6HierarchyInstances( const std::filesystem::path& aSchematic,
@@ -251,6 +1253,8 @@ void collectKiCad6HierarchyInstances( const std::filesystem::path& aSchematic,
                                       const std::string& aPrefix,
                                       SCH_HIERARCHY_INSTANCE_BUILD& aBuild )
 {
+    collectExistingSymbolInstances( aRoot, aBuild );
+
     for( const std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
     {
         if( child && !child->IsAtom() && child->HeadView() == "symbol"
@@ -260,8 +1264,13 @@ void collectKiCad6HierarchyInstances( const std::filesystem::path& aSchematic,
 
             if( !uuid.empty() )
             {
-                aBuild.SymbolInstances->Children.push_back(
-                        symbolInstanceNode( appendInstanceUuid( aPrefix, uuid ), child.get() ) );
+                std::string path = appendInstanceUuid( aPrefix, uuid );
+                auto existing = aBuild.ExistingSymbols.find( path );
+
+                if( existing != aBuild.ExistingSymbols.end() )
+                    aBuild.SymbolInstances->Children.push_back( cloneNode( existing->second.get() ) );
+                else
+                    aBuild.SymbolInstances->Children.push_back( symbolInstanceNode( path, child.get() ) );
             }
         }
     }
@@ -334,6 +1343,8 @@ bool hasTopLevelSheet( SEXPR::NODE* aRoot )
 
 void replaceRootInstances( SEXPR::NODE* aRoot, SCH_HIERARCHY_INSTANCE_BUILD& aBuild )
 {
+    uniquifyRepeatedSymbolInstanceReferences( aBuild.SymbolInstances.get() );
+
     std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
     kept.reserve( aRoot->Children.size() + 2 );
 
@@ -405,6 +1416,21 @@ DOCUMENT loadDocumentImpl( const std::filesystem::path& aPath, long long* aReadU
     doc.SourceBytes = text.size();
 
     KIND extensionKind = DetectKind( aPath, std::string() );
+
+    if( extensionKind == KIND::PROJECT )
+    {
+        doc.RawText = std::move( text );
+        doc.Kind = KIND::PROJECT;
+        doc.Version = "kicad-project-json";
+
+        if( aReadUs )
+            *aReadUs = elapsedMicros( readStart, readEnd );
+
+        if( aParseUs )
+            *aParseUs = 0;
+
+        return doc;
+    }
 
     if( IsLegacyKind( extensionKind ) )
     {
@@ -502,7 +1528,7 @@ int CONVERTER::Run( int aArgc, char** aArgv )
 void CONVERTER::printUsage() const
 {
     std::cerr << "usage:\n";
-    std::cerr << "  kicad-backport convert [--quiet] --target-version <6.0|7.0|8.0|9.0|10.0|number> <input> <output>\n";
+    std::cerr << "  kicad-backport convert [--quiet] --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|number> <input> <output>\n";
     std::cerr << "  kicad-backport inspect <input>\n";
     std::cerr << "  kicad-backport version\n";
 }
@@ -561,11 +1587,96 @@ FILE_REPORT CONVERTER::normalizeFile( const std::filesystem::path& aInput,
     report.TargetKind = report.Kind;
     report.SourceVersion = doc.Version;
 
-    if( IsLegacyKind( doc.Kind ) )
-        throw std::runtime_error( "legacy KiCad " + report.Kind
-                                  + " conversion is not implemented in Phase 0-3" );
+    int targetMajor = TargetMajorVersion( aTarget );
 
-    std::string resolved = ResolveTargetVersion( doc.Kind, aTarget );
+    auto emitWarnings = [&]()
+    {
+        if( !aPrintWarnings )
+            return;
+
+        for( const std::string& warning : report.Warnings )
+            std::cerr << "warning: " << aInput.string() << ": " << warning << '\n';
+    };
+
+    auto writeTextResult = [&]( const std::string& aText )
+    {
+        CLOCK::time_point writeStart = CLOCK::now();
+        WriteTextFile( aOutput, aText );
+        CLOCK::time_point writeEnd = CLOCK::now();
+        writeUs = elapsedMicros( writeStart, writeEnd );
+
+        if( emitTiming )
+            printTiming( aInput, readUs, parseUs, rulesUs, formatUs, writeUs,
+                         elapsedMicros( totalStart, CLOCK::now() ) );
+    };
+
+    if( IsLegacyKind( doc.Kind ) )
+    {
+        if( targetMajor <= 5 )
+        {
+            report.Warnings = {};
+            std::string text = RewriteLegacyTextForTarget( doc, targetMajor, &report.Warnings );
+            report.TargetKind = report.Kind;
+            report.TargetVersion = LegacyTargetVersionForKind( doc.Kind, targetMajor );
+            report.Changed = true;
+            emitWarnings();
+            writeTextResult( text );
+            return report;
+        }
+
+        KIND targetKind = SexprKindForLegacyKind( doc.Kind );
+        std::string resolved;
+
+        if( targetKind == KIND::PROJECT )
+            resolved = "kicad-project-json";
+        else if( targetKind != KIND::UNKNOWN )
+            resolved = ResolveTargetVersion( targetKind, aTarget );
+        else
+            throw std::runtime_error( "legacy KiCad " + report.Kind
+                                      + " conversion is not defined for this target" );
+
+        std::string text = ConvertLegacyToSexprText( doc, resolved, &targetKind,
+                                                     &report.Warnings );
+        report.TargetKind = targetKind == KIND::UNKNOWN ? report.Kind : KindName( targetKind );
+        report.TargetVersion = resolved;
+        report.Changed = true;
+        emitWarnings();
+        writeTextResult( text );
+        return report;
+    }
+
+    if( doc.Kind == KIND::PROJECT && targetMajor > 5 )
+    {
+        if( aInput != aOutput )
+            writeTextResult( doc.RawText );
+
+        report.TargetVersion = doc.Version;
+        return report;
+    }
+
+    if( targetMajor <= 5 && LegacyKindForSexprKind( doc.Kind ) != KIND::UNKNOWN )
+    {
+        KIND targetKind = KIND::UNKNOWN;
+        std::string text = ConvertSexprToLegacyText( doc, targetMajor, &targetKind,
+                                                     &report.Warnings );
+        report.TargetKind = KindName( targetKind );
+        report.TargetVersion = LegacyTargetVersionForKind( doc.Kind, targetMajor );
+        report.Changed = true;
+
+        if( targetKind == KIND::LEGACY_SYMBOL_LIBRARY )
+        {
+            std::filesystem::path dcmPath = aOutput.parent_path()
+                    / ( aOutput.stem().string() + ".dcm" );
+            WriteTextFile( dcmPath, LegacyDocumentationSidecarText( doc, targetMajor,
+                                                                    &report.Warnings ) );
+        }
+
+        emitWarnings();
+        writeTextResult( text );
+        return report;
+    }
+
+    std::string resolved = resolveDocumentTargetVersion( doc, aTarget );
     int source = IsNumber( doc.Version ) ? std::stoi( doc.Version ) : 0;
     int target = std::stoi( resolved );
 
@@ -623,7 +1734,8 @@ bool CONVERTER::isKiCadDocumentPath( const std::filesystem::path& aPath ) const
     std::string ext = Lower( aPath.extension().string() );
     return ext == ".kicad_sch" || ext == ".kicad_pcb" || ext == ".kicad_sym"
            || ext == ".kicad_mod" || ext == ".kicad_dru" || ext == ".kicad_wks"
-           || ext == ".sch" || ext == ".lib" || ext == ".dcm" || ext == ".pro";
+           || ext == ".kicad_pro" || ext == ".sch" || ext == ".lib" || ext == ".dcm"
+           || ext == ".pro";
 }
 
 
@@ -672,7 +1784,8 @@ bool CONVERTER::isExcludedProjectDirName( const std::string& aName ) const
 
 
 std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const std::filesystem::path& aInput,
-                                                            const std::filesystem::path& aOutput ) const
+                                                            const std::filesystem::path& aOutput,
+                                                            const std::string& aTarget ) const
 {
     std::filesystem::path src = std::filesystem::absolute( aInput );
     std::filesystem::path dest = std::filesystem::absolute( aOutput );
@@ -682,6 +1795,7 @@ std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const std::filesyste
 
     // Copy only editable KiCad project inputs, not generated manufacturing outputs.
     std::vector<PROJECT_COPY_ENTRY> copied;
+    int targetMajor = TargetMajorVersion( aTarget );
 
     std::filesystem::recursive_directory_iterator it( src );
     const std::filesystem::recursive_directory_iterator end;
@@ -705,10 +1819,28 @@ std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const std::filesyste
         if( !entry.is_regular_file() || !isKiCadProjectFilePath( entry.path() ) )
             continue;
 
-        std::filesystem::path out = dest / rel;
-        std::filesystem::create_directories( out.parent_path() );
+        std::string ext = Lower( entry.path().extension().string() );
+
+        if( targetMajor <= 5 && ext == ".kicad_prl" )
+            continue;
 
         bool isDocument = isKiCadDocumentPath( entry.path() );
+
+        if( isDocument && targetMajor > 5 && ext == ".dcm" )
+        {
+            std::filesystem::path pairedLib = entry.path();
+            pairedLib.replace_extension( ".lib" );
+
+            if( std::filesystem::exists( pairedLib ) )
+                continue;
+        }
+
+        std::filesystem::path out = dest / rel;
+
+        if( isDocument )
+            out = withTargetFamilyExtension( out, aTarget );
+
+        std::filesystem::create_directories( out.parent_path() );
 
         if( !isDocument )
             std::filesystem::copy_file( entry.path(), out, std::filesystem::copy_options::overwrite_existing );
@@ -724,16 +1856,17 @@ std::filesystem::path CONVERTER::versionedOutputPath( const std::filesystem::pat
                                                       const std::string& aTarget ) const
 {
     std::string label = TargetVersionSuffix( aTarget );
+    std::filesystem::path targetPath = withTargetFamilyExtension( aPath, aTarget );
 
     if( label.empty() )
-        return aPath;
+        return targetPath;
 
-    std::string stem = aPath.stem().string();
+    std::string stem = targetPath.stem().string();
 
     if( EndsWith( Lower( stem ), Lower( "_" + label ) ) )
-        return aPath;
+        return targetPath;
 
-    return aPath.parent_path() / ( stem + "_" + label + aPath.extension().string() );
+    return targetPath.parent_path() / ( stem + "_" + label + targetPath.extension().string() );
 }
 
 
@@ -754,36 +1887,321 @@ void printReportWarnings( const std::vector<FILE_REPORT>& aReports )
 }
 
 
+std::string extractJsonStringField( const std::string& aText, const std::string& aName )
+{
+    std::string needle = "\"" + aName + "\"";
+    size_t pos = aText.find( needle );
+
+    if( pos == std::string::npos )
+        return "";
+
+    pos = aText.find( ':', pos + needle.size() );
+
+    if( pos == std::string::npos )
+        return "";
+
+    pos = aText.find( '"', pos );
+
+    if( pos == std::string::npos )
+        return "";
+
+    size_t start = ++pos;
+    bool escape = false;
+    std::string out;
+
+    for( ; pos < aText.size(); ++pos )
+    {
+        char ch = aText[pos];
+
+        if( escape )
+        {
+            out.push_back( ch );
+            escape = false;
+        }
+        else if( ch == '\\' )
+        {
+            escape = true;
+        }
+        else if( ch == '"' )
+        {
+            return out;
+        }
+        else
+        {
+            out.push_back( ch );
+        }
+    }
+
+    (void) start;
+    return "";
+}
+
+
+std::vector<std::string> extractJsonArrayItems( const std::string& aText,
+                                                const std::string& aName )
+{
+    std::vector<std::string> items;
+    std::string needle = "\"" + aName + "\"";
+    size_t pos = aText.find( needle );
+
+    if( pos == std::string::npos )
+        return items;
+
+    pos = aText.find( '[', pos + needle.size() );
+
+    if( pos == std::string::npos )
+        return items;
+
+    ++pos;
+    std::string token;
+    bool inString = false;
+    bool escape = false;
+
+    auto flushToken = [&]()
+    {
+        std::string value = Trim( token );
+
+        if( !value.empty() )
+            items.push_back( value );
+
+        token.clear();
+    };
+
+    for( ; pos < aText.size(); ++pos )
+    {
+        char ch = aText[pos];
+
+        if( inString )
+        {
+            if( escape )
+            {
+                token.push_back( ch );
+                escape = false;
+            }
+            else if( ch == '\\' )
+            {
+                escape = true;
+            }
+            else if( ch == '"' )
+            {
+                inString = false;
+                flushToken();
+            }
+            else
+            {
+                token.push_back( ch );
+            }
+
+            continue;
+        }
+
+        if( ch == '"' )
+        {
+            inString = true;
+            token.clear();
+        }
+        else if( ch == ',' )
+        {
+            flushToken();
+        }
+        else if( ch == ']' )
+        {
+            flushToken();
+            break;
+        }
+        else
+        {
+            token.push_back( ch );
+        }
+    }
+
+    return items;
+}
+
+
+std::vector<int> defaultLegacyVisibleItems()
+{
+    return {
+        0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 35,
+        36, 37, 38, 39, 40, 41
+    };
+}
+
+
+int legacyVisibleItemId( const std::string& aName )
+{
+    static const std::map<std::string, int> itemIds = {
+        { "vias", 0 },
+        { "via_holes", 1 },
+        { "through_via_holes", 1 },
+        { "blind_buried_via_holes", 2 },
+        { "micro_via_holes", 3 },
+        { "non_plated_holes", 4 },
+        { "drill_holes", 5 },
+        { "footprint_text", 6 },
+        { "footprint_anchors", 8 },
+        { "ratsnest", 11 },
+        { "grid", 12 },
+        { "footprints_front", 15 },
+        { "footprints_back", 16 },
+        { "footprint_values", 17 },
+        { "footprint_references", 18 },
+        { "tracks", 19 },
+        { "drc_errors", 20 },
+        { "drawing_sheet", 23 },
+        { "bitmaps", 24 },
+        { "pads", 30 },
+        { "zones", 32 },
+        { "drc_warnings", 33 },
+        { "drc_exclusions", 36 },
+        { "locked_item_shadows", 37 },
+        { "ly_points", 38 },
+        { "conflict_shadows", 39 },
+        { "shapes", 40 },
+        { "board_outline_area", 41 }
+    };
+
+    auto it = itemIds.find( aName );
+    return it == itemIds.end() ? -1 : it->second;
+}
+
+
+std::vector<int> legacyVisibleItemsFromSource( const std::filesystem::path& aSourcePath )
+{
+    if( aSourcePath.empty() || !std::filesystem::exists( aSourcePath ) )
+        return {};
+
+    std::vector<int> result;
+
+    try
+    {
+        std::vector<std::string> items = extractJsonArrayItems( ReadTextFile( aSourcePath ),
+                                                                "visible_items" );
+        bool seededDefaults = false;
+
+        for( const std::string& item : items )
+        {
+            int id = -1;
+
+            if( IsNumber( item ) )
+            {
+                id = std::stoi( item );
+            }
+            else
+            {
+                if( !seededDefaults )
+                {
+                    std::vector<int> explicitItems = result;
+                    result = defaultLegacyVisibleItems();
+
+                    for( int explicitItem : explicitItems )
+                    {
+                        if( std::find( result.begin(), result.end(), explicitItem )
+                            == result.end() )
+                        {
+                            result.push_back( explicitItem );
+                        }
+                    }
+
+                    seededDefaults = true;
+                }
+
+                id = legacyVisibleItemId( item );
+            }
+
+            if( id >= 0 && std::find( result.begin(), result.end(), id ) == result.end() )
+                result.push_back( id );
+        }
+    }
+    catch( ... )
+    {
+        return {};
+    }
+
+    return result;
+}
+
+
+std::string visibleLayersFromSource( const std::filesystem::path& aSourcePath )
+{
+    if( aSourcePath.empty() || !std::filesystem::exists( aSourcePath ) )
+        return "";
+
+    try
+    {
+        return extractJsonStringField( ReadTextFile( aSourcePath ), "visible_layers" );
+    }
+    catch( ... )
+    {
+        return "";
+    }
+}
+
+
+std::string normalizeLegacyVisibleLayers( const std::string& aValue )
+{
+    std::string digits;
+
+    for( char ch : aValue )
+    {
+        if( ch == '_' )
+            continue;
+
+        if( !std::isxdigit( static_cast<unsigned char>( ch ) ) )
+            return "";
+
+        digits.push_back( static_cast<char>( std::tolower( static_cast<unsigned char>( ch ) ) ) );
+    }
+
+    if( digits.empty() )
+        return "";
+
+    if( digits.size() > 15 )
+        digits = digits.substr( digits.size() - 15 );
+    else if( digits.size() < 15 )
+        digits.insert( digits.begin(), 15 - digits.size(), '0' );
+
+    return digits.substr( 0, 7 ) + "_" + digits.substr( 7 );
+}
+
+
 void CONVERTER::ensureLegacyProjectLocalSettings( const std::filesystem::path& aPath,
-                                                  const std::string& aTargetSuffix ) const
+                                                  const std::string& aTargetSuffix,
+                                                  const std::filesystem::path& aSourcePath ) const
 {
     // KiCad 6/7/8 expect numeric visible item IDs; newer string IDs hide many objects.
     int metaVersion = ( aTargetSuffix == "V6" || aTargetSuffix == "V7"
                         || aTargetSuffix == "V8" ) ? 3 : 4;
+    std::vector<int> items = legacyVisibleItemsFromSource( aSourcePath );
+
+    if( items.empty() )
+        items = defaultLegacyVisibleItems();
+
+    std::string visibleLayers = visibleLayersFromSource( aSourcePath );
+
+    visibleLayers = normalizeLegacyVisibleLayers( visibleLayers );
+
+    if( visibleLayers.empty() )
+        visibleLayers = "fffffff_ffffffff";
 
     std::ostringstream out;
     out << "{\n";
     out << "  \"board\": {\n";
     out << "    \"visible_items\": [\n";
 
-    const int items[] = {
-        0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 35,
-        36, 37, 38, 39, 40, 41
-    };
-
-    for( size_t i = 0; i < sizeof( items ) / sizeof( items[0] ); ++i )
+    for( size_t i = 0; i < items.size(); ++i )
     {
         out << "      " << items[i];
 
-        if( i + 1 < sizeof( items ) / sizeof( items[0] ) )
+        if( i + 1 < items.size() )
             out << ",";
 
         out << "\n";
     }
 
     out << "    ],\n";
-    out << "    \"visible_layers\": \"ffffffff_ffffffff_ffffffff_ffffffff\"\n";
+    out << "    \"visible_layers\": \"" << JsonEscape( visibleLayers ) << "\"\n";
     out << "  },\n";
     out << "  \"meta\": {\n";
     out << "    \"filename\": \"" << JsonEscape( aPath.filename().string() ) << "\",\n";
@@ -829,7 +2247,7 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
     if( std::filesystem::is_directory( input ) || Lower( input.extension().string() ) == ".kicad_pro" )
     {
         std::filesystem::path srcDir = std::filesystem::is_directory( input ) ? input : input.parent_path();
-        std::vector<PROJECT_COPY_ENTRY> copied = copyProjectTree( srcDir, output );
+        std::vector<PROJECT_COPY_ENTRY> copied = copyProjectTree( srcDir, output, target );
         std::vector<PROJECT_COPY_ENTRY> documents;
 
         for( const PROJECT_COPY_ENTRY& entry : copied )
@@ -925,24 +2343,73 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
             printReportWarnings( reports );
 
         std::string suffix = TargetVersionSuffix( target );
+        int targetMajor = TargetMajorVersion( target );
 
         if( suffix == "V6" || suffix == "V7" || suffix == "V8" )
         {
             for( const PROJECT_COPY_ENTRY& entry : copied )
             {
                 if( Lower( entry.Output.extension().string() ) == ".kicad_pcb" )
-                    ensureLegacyProjectLocalSettings( ReplaceExtension( entry.Output, ".kicad_prl" ), suffix );
+                    ensureLegacyProjectLocalSettings( ReplaceExtension( entry.Output, ".kicad_prl" ),
+                                                      suffix,
+                                                      ReplaceExtension( entry.Source, ".kicad_prl" ) );
+                else if( Lower( entry.Output.extension().string() ) == ".kicad_prl" )
+                    ensureLegacyProjectLocalSettings( entry.Output, suffix, entry.Source );
             }
         }
 
-        if( suffix == "V6" )
+        if( targetMajor > 5 )
         {
             rebuildKiCad6ProjectHierarchyInstances( copied );
+        }
+
+        if( targetMajor > 5 )
+        {
+            std::set<std::filesystem::path> projectDirs;
 
             for( const PROJECT_COPY_ENTRY& entry : copied )
             {
+                if( Lower( entry.Output.extension().string() ) == ".kicad_sym" )
+                    projectDirs.insert( entry.Output.parent_path() );
+            }
+
+            for( const std::filesystem::path& projectDir : projectDirs )
+            {
+                FILE_REPORT tableReport = ensureProjectLocalSymbolLibraryTable( projectDir, copied,
+                                                                                targetMajor );
+                std::vector<std::string> embedWarnings;
+                int embedded = embedProjectLocalSchematicSymbols( projectDir, copied,
+                                                                  embedWarnings );
+
+                if( embedded > 0 )
+                {
+                    tableReport.Changed = true;
+                    tableReport.Warnings.push_back(
+                            "embedded generated schematic symbols for standalone loading" );
+                }
+
+                tableReport.Warnings.insert( tableReport.Warnings.end(), embedWarnings.begin(),
+                                             embedWarnings.end() );
+                reports.push_back( tableReport );
+            }
+        }
+
+        if( targetMajor <= 6 )
+        {
+            for( const PROJECT_COPY_ENTRY& entry : copied )
+            {
                 if( !entry.IsDocument && isLibraryTablePath( entry.Output ) )
-                    normalizeLegacyLibraryTable( entry.Output );
+                {
+                    std::vector<std::string> aliasWarnings;
+                    int aliasChanges = ensureLegacyFootprintLibraryAliases( entry.Output, copied,
+                                                                            targetMajor,
+                                                                            aliasWarnings );
+                    FILE_REPORT tableReport = normalizeLegacyLibraryTable( entry.Output, targetMajor );
+                    tableReport.Changed = tableReport.Changed || aliasChanges > 0;
+                    tableReport.Warnings.insert( tableReport.Warnings.end(), aliasWarnings.begin(),
+                                                 aliasWarnings.end() );
+                    reports.push_back( tableReport );
+                }
             }
         }
     }
@@ -957,7 +2424,8 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
 
         if( ( suffix == "V6" || suffix == "V7" || suffix == "V8" )
             && Lower( output.extension().string() ) == ".kicad_pcb" )
-            ensureLegacyProjectLocalSettings( ReplaceExtension( output, ".kicad_prl" ), suffix );
+            ensureLegacyProjectLocalSettings( ReplaceExtension( output, ".kicad_prl" ), suffix,
+                                              ReplaceExtension( input, ".kicad_prl" ) );
     }
 
     if( !reportPath.empty() )

@@ -4,7 +4,7 @@ Dieses Dokument verfolgt die Versionsunterschiede im KiCad-Dateiformat, die vom 
 Konverter. Es ist so organisiert, dass neuere stabile oder Entwicklungsversionen hinzugefügt werden können
 ohne die Datei umzubenennen.
 
-Zuletzt aktualisiert: 2026-06-05.
+Zuletzt aktualisiert: 2026-06-07.
 
 ## Quellen und Methode
 
@@ -22,6 +22,8 @@ Grenzen.
   - `src/kicad_backport_rules.cpp`
   - `src/kicad_backport_rule_rewriters.cpp`
   - `src/kicad_backport_upgrade.cpp`
+  - `src/kicad_backport_legacy.cpp`
+  - `src/kicad_backport_pathmap.cpp`
   - `src/kicad_backport.cpp`
 - Versions-Header-Dateien:
   - `pcbnew/kicad_plugin.h` für KiCad 4/5 PCB-Formate.
@@ -414,6 +416,7 @@ Unterstützte Aliaszuordnungen im Code:
 | `8.0` | `20231120` | `20231120` | `20240108` | `20240108` | `20231118` | `20200610` |
 | `9.0` | `20241209` | `20250114` | `20241229` | `20241229` | `20231118` | `20200610` |
 | `10.0` | `20251024` | `20260306` | `20260206` | `20260206` | `20231118` | `20200610` |
+| 10.99 | 20251024 | 20260306 | 20260603 | 20260603 | 20231118 | 20200610 |
 
 Wenn die Quelldatei bereits genau die angeforderte numerische Version hat, wird die
 Der Konverter kopiert es unverändert. Wenn die Quellversion niedriger als die Zielversion ist,

@@ -14,6 +14,7 @@ std::string TargetExtensionForKind( KIND aKind )
     case KIND::FOOTPRINT:      return ".kicad_mod";
     case KIND::DESIGN_RULES:   return ".kicad_dru";
     case KIND::WORKSHEET:      return ".kicad_wks";
+    case KIND::PROJECT:        return ".kicad_pro";
     case KIND::LEGACY_SCHEMATIC:             return ".sch";
     case KIND::LEGACY_SYMBOL_LIBRARY:        return ".lib";
     case KIND::LEGACY_SYMBOL_DOCUMENTATION:  return ".dcm";

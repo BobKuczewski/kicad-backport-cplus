@@ -133,6 +133,23 @@ std::unique_ptr<SEXPR::NODE> cloneAtomNode( const SEXPR::NODE* aNode )
 }
 
 
+std::unique_ptr<SEXPR::NODE> cloneNode( const SEXPR::NODE* aNode )
+{
+    if( !aNode )
+        return nullptr;
+
+    if( aNode->IsAtom() )
+        return cloneAtomNode( aNode );
+
+    std::unique_ptr<SEXPR::NODE> out = SEXPR::NODE::MakeList();
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
+        out->Children.push_back( cloneNode( child.get() ) );
+
+    return out;
+}
+
+
 int toInt( std::string_view aValue, int aDefault = 0 )
 {
     int value = aDefault;
@@ -2452,6 +2469,703 @@ int downgradePCBStrokeToLegacyWidth( SEXPR::NODE* aRoot )
 }
 
 
+std::unique_ptr<SEXPR::NODE> legacyAngleNode( double aAngle )
+{
+    std::unique_ptr<SEXPR::NODE> angle = listNode( "angle" );
+    angle->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aAngle ) ) );
+    return angle;
+}
+
+
+bool legacyArcFromMidpoint( SEXPR::NODE* aStart, SEXPR::NODE* aMid, SEXPR::NODE* aEnd,
+                            double& aCenterX, double& aCenterY, double& aAngle )
+{
+    constexpr double pi = 3.14159265358979323846;
+    constexpr double epsilon = 1e-9;
+
+    if( !aStart || !aMid || !aEnd )
+        return false;
+
+    double sx = toDouble( aStart->AtomAtView( 1 ) );
+    double sy = toDouble( aStart->AtomAtView( 2 ) );
+    double mx = toDouble( aMid->AtomAtView( 1 ) );
+    double my = toDouble( aMid->AtomAtView( 2 ) );
+    double ex = toDouble( aEnd->AtomAtView( 1 ) );
+    double ey = toDouble( aEnd->AtomAtView( 2 ) );
+
+    double d = 2.0 * ( sx * ( my - ey ) + mx * ( ey - sy ) + ex * ( sy - my ) );
+
+    if( std::abs( d ) < epsilon )
+        return false;
+
+    double s2 = sx * sx + sy * sy;
+    double m2 = mx * mx + my * my;
+    double e2 = ex * ex + ey * ey;
+    aCenterX = ( s2 * ( my - ey ) + m2 * ( ey - sy ) + e2 * ( sy - my ) ) / d;
+    aCenterY = ( s2 * ( ex - mx ) + m2 * ( sx - ex ) + e2 * ( mx - sx ) ) / d;
+
+    auto normalize = []( double aRadians )
+    {
+        constexpr double twoPi = 2.0 * 3.14159265358979323846;
+        double value = std::fmod( aRadians, twoPi );
+
+        if( value < 0.0 )
+            value += twoPi;
+
+        return value;
+    };
+
+    double startAngle = std::atan2( sy - aCenterY, sx - aCenterX );
+    double midAngle = std::atan2( my - aCenterY, mx - aCenterX );
+    double endAngle = std::atan2( ey - aCenterY, ex - aCenterX );
+    double ccwSweep = normalize( endAngle - startAngle );
+    double ccwMid = normalize( midAngle - startAngle );
+    double sweep = ccwMid <= ccwSweep + epsilon ? ccwSweep : ccwSweep - 2.0 * pi;
+
+    aAngle = sweep * 180.0 / pi;
+    return true;
+}
+
+
+int downgradePCBArcsToLegacyAngles( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "fp_arc" || aRoot->HeadView() == "gr_arc" )
+    {
+        SEXPR::NODE* start = aRoot->ChildList( "start" );
+        SEXPR::NODE* mid = aRoot->ChildList( "mid" );
+        SEXPR::NODE* end = aRoot->ChildList( "end" );
+        double centerX = 0.0;
+        double centerY = 0.0;
+        double angle = 0.0;
+
+        if( legacyArcFromMidpoint( start, mid, end, centerX, centerY, angle ) )
+        {
+            start->SetAtomAt( 1, formatDouble( centerX ), false );
+            start->SetAtomAt( 2, formatDouble( centerY ), false );
+
+            std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+            kept.reserve( aRoot->Children.size() );
+
+            for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+            {
+                if( child.get() == mid )
+                {
+                    ++changed;
+                    continue;
+                }
+
+                bool appendAngle = child.get() == end;
+                kept.push_back( std::move( child ) );
+
+                if( appendAngle )
+                    kept.push_back( legacyAngleNode( angle ) );
+            }
+
+            aRoot->Children = std::move( kept );
+            ++changed;
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += downgradePCBArcsToLegacyAngles( child.get() );
+
+    return changed;
+}
+
+
+std::unique_ptr<SEXPR::NODE> legacyPCBLineNode( const std::string& aHead, double aX1, double aY1,
+                                                double aX2, double aY2, SEXPR::NODE* aRect )
+{
+    std::unique_ptr<SEXPR::NODE> line = listNode( aHead );
+
+    std::unique_ptr<SEXPR::NODE> start = listNode( "start" );
+    start->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aX1 ) ) );
+    start->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aY1 ) ) );
+    line->Children.push_back( std::move( start ) );
+
+    std::unique_ptr<SEXPR::NODE> end = listNode( "end" );
+    end->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aX2 ) ) );
+    end->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aY2 ) ) );
+    line->Children.push_back( std::move( end ) );
+
+    if( SEXPR::NODE* width = aRect->ChildList( "width" ) )
+        line->Children.push_back( cloneNode( width ) );
+
+    if( SEXPR::NODE* layer = aRect->ChildList( "layer" ) )
+        line->Children.push_back( cloneNode( layer ) );
+
+    return line;
+}
+
+
+bool pcbRectFillIsSolid( SEXPR::NODE* aRect )
+{
+    SEXPR::NODE* fill = aRect ? aRect->ChildList( "fill" ) : nullptr;
+
+    if( !fill )
+        return false;
+
+    std::string value = Lower( fill->AtomAt( 1 ) );
+    return value == "yes" || value == "solid";
+}
+
+
+bool isCopperLayerName( std::string_view aLayer )
+{
+    return aLayer == "F.Cu" || aLayer == "B.Cu"
+            || ( aLayer.size() > 3 && aLayer.substr( aLayer.size() - 3 ) == ".Cu" );
+}
+
+
+std::unique_ptr<SEXPR::NODE> rectPtsNode( double aX1, double aY1, double aX2, double aY2 )
+{
+    std::unique_ptr<SEXPR::NODE> pts = listNode( "pts" );
+
+    auto addPoint = [&]( double aX, double aY )
+    {
+        std::unique_ptr<SEXPR::NODE> xy = listNode( "xy" );
+        xy->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aX ) ) );
+        xy->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aY ) ) );
+        pts->Children.push_back( std::move( xy ) );
+    };
+
+    addPoint( aX1, aY1 );
+    addPoint( aX2, aY1 );
+    addPoint( aX2, aY2 );
+    addPoint( aX1, aY2 );
+    return pts;
+}
+
+
+std::unique_ptr<SEXPR::NODE> legacyPCBPolyFromRect( SEXPR::NODE* aRect, double aX1, double aY1,
+                                                    double aX2, double aY2 )
+{
+    if( !aRect )
+        return nullptr;
+
+    std::string head = aRect->HeadView() == "fp_rect" ? "fp_poly" : "gr_poly";
+    std::unique_ptr<SEXPR::NODE> poly = listNode( head );
+    poly->Children.push_back( rectPtsNode( aX1, aY1, aX2, aY2 ) );
+
+    if( SEXPR::NODE* width = aRect->ChildList( "width" ) )
+        poly->Children.push_back( cloneNode( width ) );
+
+    if( SEXPR::NODE* layer = aRect->ChildList( "layer" ) )
+        poly->Children.push_back( cloneNode( layer ) );
+
+    if( SEXPR::NODE* tstamp = aRect->ChildList( "tstamp" ) )
+        poly->Children.push_back( cloneNode( tstamp ) );
+
+    return poly;
+}
+
+
+std::unique_ptr<SEXPR::NODE> legacyPCBZoneFromRect( SEXPR::NODE* aRect, double aX1, double aY1,
+                                                    double aX2, double aY2 )
+{
+    if( !aRect || aRect->HeadView() != "gr_rect" )
+        return nullptr;
+
+    SEXPR::NODE* net = aRect->ChildList( "net" );
+    SEXPR::NODE* layer = aRect->ChildList( "layer" );
+
+    if( !net || !layer || !isCopperLayerName( layer->AtomAtView( 1 ) ) )
+        return nullptr;
+
+    std::unique_ptr<SEXPR::NODE> zone = listNode( "zone" );
+    zone->Children.push_back( cloneNode( net ) );
+    zone->Children.push_back( cloneNode( layer ) );
+
+    std::unique_ptr<SEXPR::NODE> hatch = listNode( "hatch" );
+    hatch->Children.push_back( SEXPR::NODE::MakeAtom( "none" ) );
+    hatch->Children.push_back( SEXPR::NODE::MakeAtom( "0.1" ) );
+    zone->Children.push_back( std::move( hatch ) );
+
+    std::unique_ptr<SEXPR::NODE> connect = listNode( "connect_pads" );
+    connect->Children.push_back( SEXPR::NODE::MakeAtom( "yes" ) );
+    std::unique_ptr<SEXPR::NODE> clearance = listNode( "clearance" );
+    clearance->Children.push_back( SEXPR::NODE::MakeAtom( "0" ) );
+    connect->Children.push_back( std::move( clearance ) );
+    zone->Children.push_back( std::move( connect ) );
+
+    std::unique_ptr<SEXPR::NODE> minThickness = listNode( "min_thickness" );
+    std::string width = "0.0254";
+
+    if( SEXPR::NODE* rectWidth = aRect->ChildList( "width" ) )
+    {
+        if( toDouble( rectWidth->AtomAtView( 1 ) ) > 0.0 )
+            width = rectWidth->AtomAt( 1 );
+    }
+
+    minThickness->Children.push_back( SEXPR::NODE::MakeAtom( width ) );
+    zone->Children.push_back( std::move( minThickness ) );
+
+    std::unique_ptr<SEXPR::NODE> fill = listNode( "fill" );
+    fill->Children.push_back( SEXPR::NODE::MakeAtom( "yes" ) );
+    zone->Children.push_back( std::move( fill ) );
+
+    std::unique_ptr<SEXPR::NODE> polygon = listNode( "polygon" );
+    polygon->Children.push_back( rectPtsNode( aX1, aY1, aX2, aY2 ) );
+    zone->Children.push_back( std::move( polygon ) );
+
+    std::unique_ptr<SEXPR::NODE> filled = listNode( "filled_polygon" );
+    filled->Children.push_back( cloneNode( layer ) );
+    filled->Children.push_back( rectPtsNode( aX1, aY1, aX2, aY2 ) );
+    zone->Children.push_back( std::move( filled ) );
+
+    if( SEXPR::NODE* tstamp = aRect->ChildList( "tstamp" ) )
+        zone->Children.push_back( cloneNode( tstamp ) );
+
+    return zone;
+}
+
+
+std::vector<std::unique_ptr<SEXPR::NODE>> legacyLinesFromPCBRect( SEXPR::NODE* aRect )
+{
+    std::vector<std::unique_ptr<SEXPR::NODE>> lines;
+
+    if( !aRect )
+        return lines;
+
+    SEXPR::NODE* start = aRect->ChildList( "start" );
+    SEXPR::NODE* end = aRect->ChildList( "end" );
+
+    if( !start || !end )
+        return lines;
+
+    double x1 = toDouble( start->AtomAtView( 1 ) );
+    double y1 = toDouble( start->AtomAtView( 2 ) );
+    double x2 = toDouble( end->AtomAtView( 1 ) );
+    double y2 = toDouble( end->AtomAtView( 2 ) );
+    std::string lineHead = aRect->HeadView() == "fp_rect" ? "fp_line" : "gr_line";
+
+    lines.push_back( legacyPCBLineNode( lineHead, x1, y1, x2, y1, aRect ) );
+    lines.push_back( legacyPCBLineNode( lineHead, x2, y1, x2, y2, aRect ) );
+    lines.push_back( legacyPCBLineNode( lineHead, x2, y2, x1, y2, aRect ) );
+    lines.push_back( legacyPCBLineNode( lineHead, x1, y2, x1, y1, aRect ) );
+    return lines;
+}
+
+
+std::vector<std::unique_ptr<SEXPR::NODE>> legacyShapesFromPCBRect( SEXPR::NODE* aRect )
+{
+    std::vector<std::unique_ptr<SEXPR::NODE>> shapes;
+
+    if( !aRect )
+        return shapes;
+
+    SEXPR::NODE* start = aRect->ChildList( "start" );
+    SEXPR::NODE* end = aRect->ChildList( "end" );
+
+    if( !start || !end )
+        return shapes;
+
+    double x1 = toDouble( start->AtomAtView( 1 ) );
+    double y1 = toDouble( start->AtomAtView( 2 ) );
+    double x2 = toDouble( end->AtomAtView( 1 ) );
+    double y2 = toDouble( end->AtomAtView( 2 ) );
+
+    if( pcbRectFillIsSolid( aRect ) )
+    {
+        if( std::unique_ptr<SEXPR::NODE> zone = legacyPCBZoneFromRect( aRect, x1, y1, x2, y2 ) )
+        {
+            shapes.push_back( std::move( zone ) );
+            return shapes;
+        }
+
+        if( std::unique_ptr<SEXPR::NODE> poly = legacyPCBPolyFromRect( aRect, x1, y1, x2, y2 ) )
+        {
+            shapes.push_back( std::move( poly ) );
+            return shapes;
+        }
+    }
+
+    return legacyLinesFromPCBRect( aRect );
+}
+
+
+int downgradePCBRectsToLines( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    kept.reserve( aRoot->Children.size() );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom()
+            && ( child->HeadView() == "fp_rect" || child->HeadView() == "gr_rect" ) )
+        {
+            std::vector<std::unique_ptr<SEXPR::NODE>> lines = legacyShapesFromPCBRect( child.get() );
+
+            if( !lines.empty() )
+            {
+                for( std::unique_ptr<SEXPR::NODE>& line : lines )
+                    kept.push_back( std::move( line ) );
+
+                ++changed;
+                continue;
+            }
+        }
+
+        changed += downgradePCBRectsToLines( child.get() );
+        kept.push_back( std::move( child ) );
+    }
+
+    aRoot->Children = std::move( kept );
+    return changed;
+}
+
+
+std::unique_ptr<SEXPR::NODE> legacyTrackSegmentNode( double aX1, double aY1, double aX2,
+                                                     double aY2, SEXPR::NODE* aArc )
+{
+    std::unique_ptr<SEXPR::NODE> segment = listNode( "segment" );
+
+    std::unique_ptr<SEXPR::NODE> start = listNode( "start" );
+    start->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aX1 ) ) );
+    start->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aY1 ) ) );
+    segment->Children.push_back( std::move( start ) );
+
+    std::unique_ptr<SEXPR::NODE> end = listNode( "end" );
+    end->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aX2 ) ) );
+    end->Children.push_back( SEXPR::NODE::MakeAtom( formatDouble( aY2 ) ) );
+    segment->Children.push_back( std::move( end ) );
+
+    if( SEXPR::NODE* width = aArc->ChildList( "width" ) )
+        segment->Children.push_back( cloneNode( width ) );
+
+    if( SEXPR::NODE* layer = aArc->ChildList( "layer" ) )
+        segment->Children.push_back( cloneNode( layer ) );
+
+    if( SEXPR::NODE* net = aArc->ChildList( "net" ) )
+        segment->Children.push_back( cloneNode( net ) );
+
+    return segment;
+}
+
+
+std::vector<std::unique_ptr<SEXPR::NODE>> legacySegmentsFromTrackArc( SEXPR::NODE* aArc )
+{
+    std::vector<std::unique_ptr<SEXPR::NODE>> segments;
+
+    if( !aArc )
+        return segments;
+
+    SEXPR::NODE* start = aArc->ChildList( "start" );
+    SEXPR::NODE* mid = aArc->ChildList( "mid" );
+    SEXPR::NODE* end = aArc->ChildList( "end" );
+    double centerX = 0.0;
+    double centerY = 0.0;
+    double angleDegrees = 0.0;
+
+    if( !legacyArcFromMidpoint( start, mid, end, centerX, centerY, angleDegrees ) )
+        return segments;
+
+    constexpr double pi = 3.14159265358979323846;
+    double sx = toDouble( start->AtomAtView( 1 ) );
+    double sy = toDouble( start->AtomAtView( 2 ) );
+    double radius = std::hypot( sx - centerX, sy - centerY );
+    double startAngle = std::atan2( sy - centerY, sx - centerX );
+    double sweep = angleDegrees * pi / 180.0;
+    int count = std::max( 1, static_cast<int>( std::ceil( std::abs( angleDegrees ) / 10.0 ) ) );
+    double prevX = sx;
+    double prevY = sy;
+
+    for( int i = 1; i <= count; ++i )
+    {
+        double t = static_cast<double>( i ) / static_cast<double>( count );
+        double a = startAngle + sweep * t;
+        double x = centerX + radius * std::cos( a );
+        double y = centerY + radius * std::sin( a );
+
+        if( i == count )
+        {
+            x = toDouble( end->AtomAtView( 1 ) );
+            y = toDouble( end->AtomAtView( 2 ) );
+        }
+
+        segments.push_back( legacyTrackSegmentNode( prevX, prevY, x, y, aArc ) );
+        prevX = x;
+        prevY = y;
+    }
+
+    return segments;
+}
+
+
+int downgradePCBTrackArcsToSegments( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    kept.reserve( aRoot->Children.size() );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "arc" )
+        {
+            std::vector<std::unique_ptr<SEXPR::NODE>> segments =
+                    legacySegmentsFromTrackArc( child.get() );
+
+            if( !segments.empty() )
+            {
+                for( std::unique_ptr<SEXPR::NODE>& segment : segments )
+                    kept.push_back( std::move( segment ) );
+
+                ++changed;
+                continue;
+            }
+        }
+
+        changed += downgradePCBTrackArcsToSegments( child.get() );
+        kept.push_back( std::move( child ) );
+    }
+
+    aRoot->Children = std::move( kept );
+    return changed;
+}
+
+
+int downgradeModelOffsetsToLegacyAt( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "model" )
+    {
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( !child || child->IsAtom() || child->HeadView() != "offset" )
+                continue;
+
+            if( child->SetAtomAt( 0, "at", false ) )
+                ++changed;
+
+            SEXPR::NODE* xyz = child->ChildList( "xyz" );
+
+            if( !xyz )
+                continue;
+
+            for( size_t i = 1; i <= 3 && i < xyz->Children.size(); ++i )
+            {
+                double legacyInches = toDouble( xyz->AtomAtView( i ) ) / 25.4;
+
+                if( xyz->SetAtomAt( i, formatDouble( legacyInches ), false ) )
+                    ++changed;
+            }
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += downgradeModelOffsetsToLegacyAt( child.get() );
+
+    return changed;
+}
+
+
+std::unique_ptr<SEXPR::NODE> legacyLayerSelectorNode( const std::string& aLayer )
+{
+    std::unique_ptr<SEXPR::NODE> layer = listNode( "layer" );
+    layer->Children.push_back( SEXPR::NODE::MakeAtom( aLayer ) );
+    return layer;
+}
+
+
+std::vector<std::string> zoneLayerNames( SEXPR::NODE* aZone )
+{
+    std::vector<std::string> layers;
+
+    if( !aZone )
+        return layers;
+
+    if( SEXPR::NODE* layer = aZone->ChildList( "layer" ) )
+    {
+        if( !layer->AtomAtView( 1 ).empty() )
+            layers.push_back( layer->AtomAt( 1 ) );
+
+        return layers;
+    }
+
+    SEXPR::NODE* layerList = aZone->ChildList( "layers" );
+
+    if( !layerList )
+        return layers;
+
+    for( size_t i = 1; i < layerList->Children.size(); ++i )
+    {
+        if( layerList->Children[i] && layerList->Children[i]->IsAtom()
+            && !layerList->AtomAtView( i ).empty() )
+        {
+            layers.push_back( layerList->AtomAt( i ) );
+        }
+    }
+
+    layers.erase( std::unique( layers.begin(), layers.end() ), layers.end() );
+    return layers;
+}
+
+
+int ensureZoneFilledPolygonLayers( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "zone" )
+    {
+        std::vector<std::string> layers = zoneLayerNames( aRoot );
+
+        if( layers.size() == 1 )
+        {
+            for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+            {
+                if( !child || child->IsAtom() || child->HeadView() != "filled_polygon"
+                    || child->ChildList( "layer" ) )
+                {
+                    continue;
+                }
+
+                child->Children.insert( child->Children.begin() + 1,
+                                        legacyLayerSelectorNode( layers.front() ) );
+                ++changed;
+            }
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += ensureZoneFilledPolygonLayers( child.get() );
+
+    return changed;
+}
+
+
+std::string filledPolygonLayerName( SEXPR::NODE* aFilledPolygon )
+{
+    if( !aFilledPolygon )
+        return std::string();
+
+    SEXPR::NODE* layer = aFilledPolygon->ChildList( "layer" );
+    return layer ? layer->AtomAt( 1 ) : std::string();
+}
+
+
+bool zoneHasLayeredFilledPolygons( SEXPR::NODE* aZone )
+{
+    if( !aZone )
+        return false;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aZone->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "filled_polygon"
+            && !filledPolygonLayerName( child.get() ).empty() )
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+std::unique_ptr<SEXPR::NODE> legacyZoneForSingleLayer( SEXPR::NODE* aZone,
+                                                       const std::string& aLayer,
+                                                       bool aFilterLayeredFills )
+{
+    std::unique_ptr<SEXPR::NODE> zone = cloneNode( aZone );
+
+    if( !zone )
+        return nullptr;
+
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( zone->Children.get_allocator() );
+    kept.reserve( zone->Children.size() );
+    bool insertedLayer = false;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : zone->Children )
+    {
+        if( child && !child->IsAtom()
+            && ( child->HeadView() == "layer" || child->HeadView() == "layers" ) )
+        {
+            if( !insertedLayer )
+            {
+                kept.push_back( legacyLayerSelectorNode( aLayer ) );
+                insertedLayer = true;
+            }
+
+            continue;
+        }
+
+        if( aFilterLayeredFills && child && !child->IsAtom()
+            && child->HeadView() == "filled_polygon" )
+        {
+            std::string fillLayer = filledPolygonLayerName( child.get() );
+
+            if( !fillLayer.empty() && fillLayer != aLayer )
+                continue;
+        }
+
+        kept.push_back( std::move( child ) );
+    }
+
+    if( !insertedLayer )
+    {
+        auto insertAt = kept.size() > 1 ? kept.begin() + 1 : kept.end();
+        kept.insert( insertAt, legacyLayerSelectorNode( aLayer ) );
+    }
+
+    zone->Children = std::move( kept );
+    return zone;
+}
+
+
+int splitMultilayerZonesToLegacySingleLayerZones( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    kept.reserve( aRoot->Children.size() );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "zone" && child->ChildList( "layers" ) )
+        {
+            std::vector<std::string> layers = zoneLayerNames( child.get() );
+
+            if( !layers.empty() )
+            {
+                bool layeredFills = zoneHasLayeredFilledPolygons( child.get() );
+
+                for( const std::string& layer : layers )
+                    kept.push_back( legacyZoneForSingleLayer( child.get(), layer, layeredFills ) );
+
+                changed += static_cast<int>( layers.size() );
+                continue;
+            }
+        }
+
+        changed += splitMultilayerZonesToLegacySingleLayerZones( child.get() );
+        kept.push_back( std::move( child ) );
+    }
+
+    aRoot->Children = std::move( kept );
+    return changed;
+}
+
+
 std::string zoneNetName( SEXPR::NODE* aZone )
 {
     if( !aZone )
@@ -2565,7 +3279,20 @@ int rewriteBoardNetNamesToCodes( SEXPR::NODE* aRoot, const std::string& aParentH
             std::unique_ptr<SEXPR::NODE> netName = SEXPR::NODE::MakeList();
             netName->Children.push_back( SEXPR::NODE::MakeAtom( "net_name" ) );
             netName->Children.push_back( SEXPR::NODE::MakeAtom( name, true ) );
-            aRoot->Children.push_back( std::move( netName ) );
+
+            size_t insertAt = aRoot->Children.size();
+
+            for( size_t i = 1; i < aRoot->Children.size(); ++i )
+            {
+                if( aRoot->Children[i] && !aRoot->Children[i]->IsAtom()
+                    && aRoot->Children[i]->HeadView() == "net" )
+                {
+                    insertAt = i + 1;
+                    break;
+                }
+            }
+
+            aRoot->Children.insert( aRoot->Children.begin() + insertAt, std::move( netName ) );
             ++changed;
         }
     }
@@ -2586,7 +3313,8 @@ int firstBoardItemIndex( SEXPR::NODE* aRoot )
 
     static const std::set<std::string> itemHeads = {
         "arc", "dimension", "footprint", "gr_arc", "gr_circle", "gr_curve", "gr_line",
-        "gr_poly", "gr_rect", "gr_text", "group", "image", "segment", "via", "zone"
+        "gr_poly", "gr_rect", "gr_text", "group", "image", "module", "segment", "via",
+        "zone"
     };
 
     for( size_t i = 0; i < aRoot->Children.size(); ++i )

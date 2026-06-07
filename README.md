@@ -25,7 +25,7 @@ The command line interface mirrors the Go implementation and is intended to be
 usable both directly and from the Python plugin:
 
 ```text
-kicad-backport convert --target-version <6.0|7.0|8.0|9.0|10.0|number> [--report report.json] <input> <output>
+kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport version
 ```
@@ -41,23 +41,24 @@ Examples:
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
 ```
 
-Supported release aliases are `6.0`, `7.0`, `8.0`, `9.0`, and `10.0`. A raw
-KiCad file format version number can also be passed when testing a specific
-parser cutoff.
+Supported release aliases are `4.0`, `5.0`, `5.1`, `6.0`, `7.0`, `8.0`,
+`9.0`, `10.0`, and `10.99`. A raw KiCad file format version number can also be passed
+when testing a specific parser cutoff.
 
 ## Support Status
 
-The current implementation targets KiCad 6 through KiCad 10 S-expression file
-families:
+The current implementation targets KiCad 4 through KiCad 10 file families:
 
 | Target | Status |
 | --- | --- |
 | KiCad 10 | Removes post-10.0/current-development syntax, including 20260521 pad `sim_electrical_type` and 20260603 table-cell `knockout`. |
+| KiCad 10.99 | Current-development board/footprint target: writes board and footprint version `20260603`; symbol libraries and schematics still use KiCad 10 target versions (`20251024` / `20260306`). |
 | KiCad 9 | Removes or downgrades KiCad 10/current features such as variants, barcodes, backdrill/post-machining, jumper pads, and netcode omission. |
 | KiCad 8 | Removes KiCad 9+ tables, embedded files, component classes, padstacks, via stacks, rule areas, and arbitrary user-layer forms. |
 | KiCad 7 | Applies older parser compatibility rewrites for UUID/tstamp forms, PCB footprint fields, teardrops, generated objects, images, and text boxes. |
 | KiCad 6 | Basic file downgrade support is largely complete. Converted test projects have been manually opened in the actual KiCad 6 application for validation. |
-| KiCad 5 and older | Not implemented yet. The code now separates legacy document detection, path mapping, and upgrade/downgrade rules to prepare for future V5 support. |
+| KiCad 5 | Supports board/footprint target version `20171130` and basic legacy `.sch`, `.lib`, `.dcm`, and `.pro` import/export with deterministic output paths. Detailed schematic objects, symbol drawing primitives, and pins are still lossy and reported with warnings. |
+| KiCad 4 | Supports board/footprint target version `4`, V4 legacy schematic/library header rewrites, and V4 output suffixes/extensions. V5-only PCB features such as custom pads are simplified where possible. |
 
 ## Downgrade Policy
 
@@ -78,6 +79,9 @@ visibility files are generated for KiCad 6/7/8 targets.
 When converting a project directory or `.kicad_pro`, the tool copies only
 editable KiCad inputs and common local 3D model files. Generated manufacturing
 outputs, history/backup folders, Gerbers, BOMs, and temporary files are skipped.
+Crossing the KiCad 5/6 boundary automatically changes extensions where needed,
+for example `.sch -> .kicad_sch`, `.lib -> .kicad_sym`, `.kicad_sch -> .sch`,
+`.kicad_sym -> .lib/.dcm`, and `.kicad_pro -> .pro`.
 
 ## Project Layout
 
@@ -86,7 +90,7 @@ small, localized changes:
 
 - `src/kicad_backport.cpp`: CLI flow, project copy/filtering, file conversion.
 - `src/kicad_backport_document.cpp`: KiCad document kind detection.
-- `src/kicad_backport_legacy.cpp`: legacy KiCad document loading scaffolding.
+- `src/kicad_backport_legacy.cpp`: legacy KiCad `.sch`, `.lib`, `.dcm`, and `.pro` parsing/writing helpers.
 - `src/kicad_backport_pathmap.cpp`: target file extension mapping helpers.
 - `src/kicad_backport_report.cpp`: JSON report formatting.
 - `src/kicad_backport_rules.cpp`: version gates and downgrade rule ordering.
@@ -202,6 +206,12 @@ formatting conventions.
 
 ## Validation
 
+Run the built-in Phase 4 smoke matrix after building the Windows executable:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\test-phase4-smoke.ps1
+```
+
 After conversion, validate each target with the matching KiCad version. For
 KiCad 8/9/10 this usually means running schematic ERC and PCB DRC:
 
@@ -230,3 +240,58 @@ end-to-end validation. Current V6 regression samples have been checked this way.
 
 ERC/DRC violations are design-rule findings from the project. They are not
 format conversion failures unless KiCad reports a load or parse error.
+
+### Conversion Compare Package
+
+For repeatable downgrade/upgrade regression analysis, use the Python compare
+package runner. It reads one or more source project directories, converts each
+target version, exports source and target PCB/SCH SVGs with `kicad-cli`, compares
+visible SVG signatures, and writes machine-readable plus human-readable reports.
+
+```powershell
+.\scripts\run-kicad-conversion-compare-package.ps1 `
+  -Config .\scripts\kicad-conversion-compare-package.example.json
+```
+
+The PowerShell entry point is a compatibility wrapper around:
+
+```powershell
+python .\scripts\run_kicad_conversion_compare_package.py --config .\scripts\kicad-conversion-compare-package.example.json
+```
+
+The JSON config supports both the old top-level `source_projects` /
+`target_versions` form and the richer `cases` form. Each case can point at
+project directories, `.kicad_pro` files, standalone `.kicad_pcb` files, or
+standalone schematic files. Case `mode` can be `auto` for direct conversion
+comparison or `downgrade-upgrade` / `roundtrip` to compare the converted result
+after converting back to a configured source target version.
+
+KiCad executables can be mapped by version:
+
+```json
+{
+  "kicad": {
+    "default_cli": "D:\\KiCad\\10.99\\bin\\kicad-cli.exe",
+    "versions": {
+      "6.0": { "cli": "D:\\KiCad\\6.0\\bin\\kicad-cli.exe" },
+      "9.0": { "cli": "D:\\KiCad\\9.0\\bin\\kicad-cli.exe" },
+      "10.99": { "cli": "D:\\KiCad\\10.99\\bin\\kicad-cli.exe" }
+    }
+  }
+}
+```
+
+Source SVG export uses the case `source_kicad_version`; target SVG export uses
+the target version when a matching KiCad CLI is configured, otherwise the
+default CLI is used. Set `pcb_layers` to `auto` to parse the source board layer
+table and export all board layers found there, or provide an explicit comma
+separated layer list.
+
+Useful outputs under the configured `output_root`:
+
+- `manifest.csv` / `manifest.json`: one row per source-target conversion.
+- `case-diff-summary.csv`: compact AI/human triage table of differing SVG files.
+- `summary.json`: status counts and case diff summary for automation.
+- `analysis-report.md`: readable report with priority differences and notes.
+- Per case `compare/visual-compare.csv`, `compare/visual-diff-details.csv`, and
+  `compare/schematic-text-diff.csv`.

@@ -25,7 +25,7 @@ L'interfaccia della riga di comando rispecchia l'implementazione Go ed è destin
 utilizzabile sia direttamente che dal plugin Python:
 
 ```text
-kicad-backport convert --target-version <6.0|7.0|8.0|9.0|10.0|number> [--report report.json] <input> <output>
+kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport version
 ```
@@ -41,23 +41,24 @@ Esempi:
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
 ```
 
-Gli alias di versione supportati sono `6.0`, `7.0`, `8.0`, `9.0` e `10.0`. Un crudo
-Il numero di versione del formato file KiCad può anche essere passato durante il test di uno specifico
-taglio del parser.
+Gli alias di versione supportati sono `4.0`, `5.0`, `5.1`, `6.0`, `7.0`,
+`8.0`, `9.0`, `10.0` e `10.99`. Una versione grezza del formato file KiCad può essere
+passata anche per testare uno specifico limite del parser.
 
 ## Stato del supporto
 
-L'attuale implementazione è destinata al file S-expression da KiCad 6 a KiCad 10
-famiglie:
+L'attuale implementazione è destinata alle famiglie di file KiCad 4 fino a KiCad 10:
 
 | Bersaglio | Stato |
 | --- | --- |
 | KiCad 10 | Rimuove la sintassi post-10.0/sviluppo corrente, inclusi 20260521 pad `sim_electrical_type` e 20260603 cella di tabella `knockout`. |
+| KiCad 10.99 | Target di sviluppo corrente per board/footprint: scrive la versione `20260603`; symbol library e schematic usano ancora le versioni target KiCad 10 (`20251024` / `20260306`). |
 | KiCad 9 | Rimuove o esegue il downgrade delle funzionalità di KiCad 10/attuale come varianti, codici a barre, backdrill/post-lavorazione, jumper pad e omissione del netcode. |
 | KiCad8 | Rimuove le tabelle di KiCad 9+, i file incorporati, le classi dei componenti, i padstack, gli stack via, le aree delle regole e i moduli arbitrari del livello utente. |
 | KiCad7 | Applica le riscritture di compatibilità del parser precedenti per moduli UUID/tstamp, campi di impronte PCB, lacrime, oggetti generati, immagini e caselle di testo. |
 | KiCad 6 | Il supporto per il downgrade dei file di base è in gran parte completo. I progetti di test convertiti sono stati aperti manualmente nell'effettiva applicazione KiCad 6 per la convalida. |
-| KiCad 5 e versioni precedenti | Non ancora implementato. Il codice ora separa il rilevamento dei documenti legacy, la mappatura dei percorsi e le regole di upgrade/downgrade per prepararsi al futuro supporto V5. |
+| KiCad 5 | Supporta la versione target board/footprint `20171130` e l'import/export di base dei file legacy `.sch`, `.lib`, `.dcm` e `.pro`. Oggetti schematici dettagliati, primitive grafiche dei simboli e pin restano conversioni con perdita e vengono segnalati con avvisi. |
+| KiCad 4 | Supporta la versione target board/footprint `4`, la riscrittura degli header legacy V4 per schemi/librerie e suffissi/estensioni di output V4. Le funzionalità PCB solo V5, come i pad personalizzati, vengono semplificate quando possibile. |
 
 ## Politica di downgrade
 

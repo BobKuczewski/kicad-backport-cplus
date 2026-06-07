@@ -25,7 +25,7 @@ KiCad Backport 다운그레이드 CLI의 독립형 C++17 구현입니다. 도구
 직접적으로나 Python 플러그인에서 모두 사용할 수 있습니다.
 
 ```text
-kicad-backport convert --target-version <6.0|7.0|8.0|9.0|10.0|number> [--report report.json] <input> <output>
+kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport version
 ```
@@ -41,23 +41,24 @@ kicad-backport version
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
 ```
 
-지원되는 릴리스 별칭은 `6.0`, `7.0`, `8.0`, `9.0` 및 `10.0`입니다. 원시
-특정 파일을 테스트할 때 KiCad 파일 형식 버전 번호를 전달할 수도 있습니다.
-파서 컷오프.
+지원되는 릴리스 별칭은 `4.0`, `5.0`, `5.1`, `6.0`, `7.0`, `8.0`,
+`9.0`, `10.0` 및 `10.99`입니다. 특정 파서 경계를 테스트할 때 원시 KiCad 파일
+형식 버전 번호도 전달할 수 있습니다.
 
 ## 지원현황
 
-현재 구현은 KiCad 6부터 KiCad 10 S-표현 파일을 대상으로 합니다.
-가족:
+현재 구현은 KiCad 4부터 KiCad 10 파일 계열을 대상으로 합니다.
 
 | 목표 | 상태 |
 | --- | --- |
 | KiCad 10 | 20260521 패드 `sim_electrical_type` 및 20260603 테이블 셀 `knockout`을 포함하여 10.0 이후/현재 개발 구문을 제거합니다. |
+| KiCad 10.99 | 현재 개발판 board/footprint target입니다. board와 footprint는 `20260603`으로 쓰고, symbol library와 schematic은 KiCad 10 target version(`20251024` / `20260306`)을 계속 사용합니다. |
 | KiCad 9 | 변형, 바코드, 백드릴/사후 가공, 점퍼 패드 및 넷코드 생략과 같은 KiCad 10/현재 기능을 제거하거나 다운그레이드합니다. |
 | KiCad 8 | 스택, 규칙 영역 및 임의의 사용자 레이어 양식을 통해 KiCad 9+ 테이블, 내장 파일, 구성 요소 클래스, 패드 스택을 제거합니다. |
 | KiCad 7 | UUID/tstamp 양식, PCB 풋프린트 필드, 눈물 방울, 생성된 개체, 이미지 및 텍스트 상자에 대해 이전 파서 호환성 재작성을 적용합니다. |
 | KiCad 6 | 기본 파일 다운그레이드 지원이 거의 완료되었습니다. 변환된 테스트 프로젝트는 검증을 위해 실제 KiCad 6 애플리케이션에서 수동으로 열었습니다. |
-| KiCad 5 및 이전 버전 | 아직 구현되지 않았습니다. 이제 코드는 레거시 문서 감지, 경로 매핑, 업그레이드/다운그레이드 규칙을 분리하여 향후 V5 지원을 준비합니다. |
+| KiCad 5 | board/footprint 대상 version `20171130`과 legacy `.sch`, `.lib`, `.dcm`, `.pro`의 기본 import/export를 지원합니다. 세부 schematic 객체, symbol drawing primitive, pin은 아직 손실 변환이며 warning으로 보고됩니다. |
+| KiCad 4 | board/footprint 대상 version `4`, V4 legacy schematic/library header rewrite, V4 출력 suffix/extension을 지원합니다. custom pad 같은 V5-only PCB 기능은 가능한 경우 단순화됩니다. |
 
 ## 다운그레이드 정책
 
