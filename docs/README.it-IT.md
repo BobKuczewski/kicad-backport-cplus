@@ -27,18 +27,27 @@ utilizzabile sia direttamente che dal plugin Python:
 ```text
 kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
+kicad-backport detect-versions [--json] <input>
 kicad-backport version
 ```
 
 Il convertitore legge i file KiCad S-expression e applica il downgrade basato sulla versione
 regole, scrive un percorso di output con il suffisso della versione e può copiare l'intero progetto KiCad
-directory prima di normalizzare tutti i file KiCad nella copia.
+directory prima di normalizzare tutti i file KiCad nella copia. Durante la conversione,
+stampa la versione sorgente rilevata e la versione target risolta per ogni file KiCad.
+L'output testuale preferisce alias KiCad come `9.0 (20241229)` o
+`10.99-dev (20260513)` invece dei numeri grezzi del formato file.
+`detect-versions` è una scansione rapida delle directory che legge solo il testo
+necessario per riportare tipi e versioni dei file KiCad. L'output testuale usa gli
+stessi alias, mentre i report JSON mantengono le versioni grezze. Prima filtra per
+estensioni KiCad supportate e omette i file di cui non può identificare la versione.
 
 Esempi:
 
 ```powershell
 .\dist\kicad-backport-windows-amd64.exe convert --target-version 9.0 E:\tmp\project E:\tmp\project_V9
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
+.\dist\kicad-backport-windows-amd64.exe detect-versions E:\tmp\project
 ```
 
 Gli alias di versione supportati sono `4.0`, `5.0`, `5.1`, `6.0`, `7.0`,
@@ -79,6 +88,9 @@ i file di visibilità vengono generati per le destinazioni KiCad 6/7/8.
 Quando si converte una directory di progetto o `.kicad_pro`, lo strumento copia solo
 input KiCad modificabili e file di modelli 3D locali comuni. Produzione generata
 output, cartelle di cronologia/backup, Gerber, distinte materiali e file temporanei vengono ignorati.
+Quando si attraversa il confine KiCad 5/6, le estensioni cambiano automaticamente dove necessario,
+ad esempio `.sch -> .kicad_sch`, `.lib -> .kicad_sym`, `.kicad_sch -> .sch`,
+`.kicad_sym -> .lib/.dcm` e `.kicad_pro -> .pro`.
 
 ## Disposizione del progetto
 
@@ -87,7 +99,7 @@ piccoli cambiamenti localizzati:
 
 - `src/kicad_backport.cpp`: flusso CLI, copia/filtro del progetto, conversione file.
 - `src/kicad_backport_document.cpp`: rilevamento del tipo di documento KiCad.
-- `src/kicad_backport_legacy.cpp`: impalcatura di caricamento dei documenti KiCad legacy.
+- `src/kicad_backport_legacy.cpp`: helper di lettura/scrittura per file KiCad legacy `.sch`, `.lib`, `.dcm` e `.pro`.
 - `src/kicad_backport_pathmap.cpp`: aiutanti per la mappatura dell'estensione del file di destinazione.
 - `src/kicad_backport_report.cpp`: formattazione del report JSON.
 - `src/kicad_backport_rules.cpp`: gate di versione e ordine delle regole di downgrade.
@@ -127,6 +139,14 @@ Costruisci sulla piattaforma attuale:
 ./build.sh
 ```
 
+Usa gli helper solo nativi quando vuoi soltanto il binario dell'host Linux o macOS
+corrente e non la distribuzione standard tra target:
+
+```sh
+./build-linux.sh
+./build-macos.sh
+```
+
 Per rilevare e installare automaticamente la più piccola toolchain pratica prima
 edificio:
 
@@ -151,12 +171,18 @@ Entrambi gli script provano le destinazioni di rilascio standard e vi copiano gl
 Utilizza `.\build.ps1 -Clean` o `./build.sh --clean` per rimuovere la build precedente
 output prima della ricostruzione.
 
+Usa `./build-linux.sh --clean` o `./build-macos.sh --clean` per pulire solo il
+relativo albero di build nativo e l'output. Entrambi gli helper nativi accettano
+`--config <name>`, `--generator <cmake-generator>` e `--jobs <n>`.
+
 La compilazione incrociata C++ richiede toolchain della piattaforma. Su Windows, `build.ps1`
 costruisce `windows-amd64` e `windows-arm64` con Visual Studio e costruisce
 `linux-amd64`/`linux-arm64` tramite WSL quando la toolchain WSL è disponibile.
 Su Linux, `build.sh` crea Linux nativo e può creare `linux-arm64` quando
 `aarch64-linux-gnu-g++` è installato. Su macOS, `build.sh` crea Darwin
 amd64/arm64 con l'SDK di Apple. I file binari di Darwin devono essere generati su macOS.
+Per build strettamente native, `build-linux.sh` usa la toolchain C++ Linux dell'host,
+e `build-macos.sh` usa Apple Command Line Tools tramite `xcrun`.
 
 Per creare un sottoinsieme:
 
@@ -200,6 +226,11 @@ cmake --build build --config Release
 
 L'implementazione è intenzionalmente priva di dipendenze e segue il C++ in stile KiCad
 convenzioni di formattazione.
+
+## Ringraziamenti
+
+Un ringraziamento speciale a Hubert per l'aiuto fornito durante lo sviluppo di questo
+progetto.
 
 ## Validazione
 

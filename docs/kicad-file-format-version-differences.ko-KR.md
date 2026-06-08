@@ -662,7 +662,7 @@ KiCad 프로젝트 입력 및 공통 로컬 3D 모델 파일. 생성된 출력,
 | `< 20230924` | `pcbplotparams` `yes/no` 부울을 `true/false`로 변환합니다. 도형 채우기 `no`을(를) `none`로 변환 |
 | `< 20230730` | 그래픽 모양 `net` 연결 제거 |
 | `< 20240108` | 굵은 글꼴/기울임꼴 부울 목록을 레거시 원자로 변환 |
-| `< 20230620` | 발자국 `Reference` 및 `Value` 속성을 다시 `fp_text`로 변환합니다. `Description`을 `ki_description`로 변환합니다. `sheetname`/`sheetfile`을 속성에 매핑 |
+| `< 20230620` | 발자국 `Reference` 및 `Value` 속성을 다시 `fp_text reference` / `fp_text value`로 변환합니다. 이는 PCB reference designator 호환성 요구사항입니다. `Description`을 `ki_description`로 변환합니다. `sheetname`/`sheetfile`을 속성에 매핑 |
 | `< 20231231` | 범위가 지정된 `uuid` 필드의 이름을 다시 `tstamp`로 바꿉니다. 그룹 이름을 바꾸거나 생성된 `uuid`을(를) 다시 `id`(으)로 바꿉니다. |
 | `< 20250324` | 발자국 점퍼 패드 필드 제거: `duplicate_pad_numbers_are_jumpers` 및 `jumper_pad_groups` |
 | `<= 20221018` | 풋프린트 `dnp` 속성, `net_tie_pad_groups`, `units` 및 `allow_missing_courtyard`을 제거합니다. 패드 제거/`remove_unused_layers`를 통해; 치수를 눈에 보이는 그래픽으로 변환합니다. 레거시 호환되지 않는 `locked`을 제거합니다. 필드를 통해 무료로 다운그레이드합니다. PCB 그래픽 `stroke` 블록을 레거시 `width` 필드로 변환 |

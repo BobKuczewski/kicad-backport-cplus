@@ -27,18 +27,28 @@ usable both directly and from the Python plugin:
 ```text
 kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
+kicad-backport detect-versions [--json] <input>
 kicad-backport version
 ```
 
 The converter reads KiCad S-expression files, applies version-driven downgrade
 rules, writes a version-suffixed output path, and can copy whole KiCad project
-directories before normalizing all KiCad files in the copy.
+directories before normalizing all KiCad files in the copy. During conversion,
+it prints the detected source file version and resolved target file version for
+each converted KiCad file, preferring KiCad aliases such as `9.0 (20241229)` or
+`10.99-dev (20260513)` over raw file-format numbers in human-readable output.
+`detect-versions` is a fast directory scan that reads only enough file text to
+report KiCad-related file kinds and versions. Its text output uses the same
+alias display while JSON reports keep raw file-format versions. It first filters
+by supported KiCad file extensions and omits files whose versions cannot be
+identified.
 
 Examples:
 
 ```powershell
 .\dist\kicad-backport-windows-amd64.exe convert --target-version 9.0 E:\tmp\project E:\tmp\project_V9
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
+.\dist\kicad-backport-windows-amd64.exe detect-versions E:\tmp\project
 ```
 
 Supported release aliases are `4.0`, `5.0`, `5.1`, `6.0`, `7.0`, `8.0`,
@@ -130,6 +140,14 @@ Build on the current platform:
 ./build.sh
 ```
 
+Use the native-only helpers when you only want the current Linux or macOS host
+binary and do not want the standard cross-target dispatch:
+
+```sh
+./build-linux.sh
+./build-macos.sh
+```
+
 To automatically detect and install the smallest practical toolchain before
 building:
 
@@ -154,12 +172,18 @@ Both scripts try the standard release targets and copy successful outputs to
 Use `.\build.ps1 -Clean` or `./build.sh --clean` to remove previous build
 outputs before rebuilding.
 
+Use `./build-linux.sh --clean` or `./build-macos.sh --clean` to clean only the
+corresponding native build tree and output. Both native helpers accept
+`--config <name>`, `--generator <cmake-generator>`, and `--jobs <n>`.
+
 C++ cross-compilation requires platform toolchains. On Windows, `build.ps1`
 builds `windows-amd64` and `windows-arm64` with Visual Studio, and builds
 `linux-amd64`/`linux-arm64` through WSL when the WSL toolchain is available.
 On Linux, `build.sh` builds native Linux and can build `linux-arm64` when
 `aarch64-linux-gnu-g++` is installed. On macOS, `build.sh` builds Darwin
 amd64/arm64 with the Apple SDK. Darwin binaries must be generated on macOS.
+For strictly native builds, `build-linux.sh` uses the host Linux C++ toolchain,
+and `build-macos.sh` uses Apple Command Line Tools through `xcrun`.
 
 To build a subset:
 
@@ -204,13 +228,12 @@ cmake --build build --config Release
 The implementation is intentionally dependency-free and follows KiCad-style C++
 formatting conventions.
 
+## Acknowledgements
+
+Special thanks to Hubert for the help provided during development of this
+project.
+
 ## Validation
-
-Run the built-in Phase 4 smoke matrix after building the Windows executable:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\test-phase4-smoke.ps1
-```
 
 After conversion, validate each target with the matching KiCad version. For
 KiCad 8/9/10 this usually means running schematic ERC and PCB DRC:

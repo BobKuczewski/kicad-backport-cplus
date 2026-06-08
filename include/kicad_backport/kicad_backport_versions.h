@@ -14,6 +14,9 @@ std::string ResolveTargetVersion( KIND aKind, const std::string& aTarget );
 // Returns the output suffix used for converted project/file names.
 std::string TargetVersionSuffix( const std::string& aTarget );
 
+// Formats a raw file format version as a KiCad release alias when one is known.
+std::string DisplayVersionAlias( KIND aKind, const std::string& aVersion );
+
 // Returns the KiCad major release number for aliases such as "5.0" or "kicad-7".
 int TargetMajorVersion( const std::string& aTarget );
 

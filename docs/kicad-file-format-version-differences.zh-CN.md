@@ -118,6 +118,8 @@ backport的影响：
 
 legacy 原理图转换会解析 page metadata、components、fields、AR paths、wires、buses、bus entries、sheets、sheet pins、labels/text、junctions 和 no-connects。若 `L` 或 `F0` 仍是 `C?` 这类占位位号，会优先使用已标注的 `AR Ref=`；隐藏的 `#U...` 电源引用会尽量归一化为 `#PWR` / `#FLG`。legacy 符号库转换会把库符号默认 `Reference` 归一化为前缀，因此 `C?`、`R12`、`TP?` 会写成 `C`、`R`、`TP`，而放置在原理图中的实例仍保留 `C12` 这类具体位号和 footprint property。
 
+PCB / footprint 的位号差异独立于原理图处理：较新的 board / footprint 格式可以把 footprint 的 `Reference` 和 `Value` 作为 `property` 保存；较旧目标（`< 20230620`，包括 V6/V7 和 V4/V5 PCB 目标）需要写回 `fp_text reference` / `fp_text value`。V5/V4 还会删除不兼容的 footprint property，因此转换顺序必须先把位号 property 写成 `fp_text`，再删除剩余 property，避免 PCB 位号丢失。
+
 当前 `10.99` target alias 只把 board/footprint 输出推进到 `20260603`；symbol library 仍为 `20251024`，schematic 仍为 `20260306`。这些 symbol/schematic 当前开发版本会在成为明确转换目标后再单独启用。
 
 `CONVERTER::normalizeFile()` 的主流程是：检测 legacy 或 S-expression 文档；解析 target alias 或原始数字版本；legacy 到 V4/V5 时重写 legacy 头，legacy 到 V6+ 时写 S-expression；现代文件到 V4/V5 时写 legacy 文件并为 symbol library 写 `.dcm` sidecar；现代 S-expression 之间若版本相同则复制，源版本更旧则运行有限 upgrade 规范化，源版本更新则运行 downgrade 规则，最后写入目标 `version` atom。
@@ -662,7 +664,7 @@ KiCad 项目输入和常见本地 3D 模型文件。生成的输出，
 | `< 20230924` | 将 `pcbplotparams` `yes/no` 布尔值转换为 `true/false`；将形状填充 `no` 转换为 `none` |
 | `< 20230730` | 删除图形形状 `net` 连接 |
 | `< 20240108` | 将字体粗体/斜体布尔列表转换为旧原子 |
-| `< 20230620` | 将封装 `Reference` 和 `Value` 属性转换回 `fp_text`；将 `Description` 转换为 `ki_description`；将 `sheetname`/`sheetfile` 映射到属性 |
+| `< 20230620` | 将封装 `Reference` 和 `Value` 属性转换回 `fp_text reference` / `fp_text value`，这是 PCB 位号兼容性要求；将 `Description` 转换为 `ki_description`；将 `sheetname`/`sheetfile` 映射到属性 |
 | `< 20231231` | 将作用域 `uuid` 字段重命名回 `tstamp`；将组/生成的 `uuid` 重命名为 `id` |
 | `< 20250324` | 删除封装跳线垫字段：`duplicate_pad_numbers_are_jumpers` 和 `jumper_pad_groups` |
 | `<= 20221018` | 删除封装 `dnp` 属性、`net_tie_pad_groups`、`units` 和 `allow_missing_courtyard`；删除焊盘/过孔 `remove_unused_layers`；将尺寸转换为可见图形；删除与旧版不兼容的 `locked`；通过字段免费降级；将 PCB 图形 `stroke` 块转换为旧版 `width` 字段 |

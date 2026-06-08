@@ -5,6 +5,7 @@
 #include <cctype>
 #include <map>
 #include <stdexcept>
+#include <vector>
 
 
 namespace KICAD_BACKPORT
@@ -50,6 +51,66 @@ const std::map<std::string, VERSION_MAP>& targetVersions()
     };
 
     return targets;
+}
+
+
+const std::vector<std::string>& displayAliasOrder()
+{
+    static const std::vector<std::string> order = {
+        "4.0", "5.0", "5.1", "6.0", "7.0", "8.0", "9.0", "10.0", "10.99",
+    };
+
+    return order;
+}
+
+
+std::string joinAliases( const std::vector<std::string>& aAliases )
+{
+    std::string text;
+
+    for( const std::string& alias : aAliases )
+    {
+        if( !text.empty() )
+            text += "/";
+
+        text += alias;
+    }
+
+    return text;
+}
+
+
+std::string developmentAliasForVersion( KIND aKind, int aVersion )
+{
+    int previousVersion = -1;
+    std::string previousAlias;
+    const auto& targets = targetVersions();
+
+    for( const std::string& alias : displayAliasOrder() )
+    {
+        auto targetIt = targets.find( alias );
+
+        if( targetIt == targets.end() )
+            continue;
+
+        auto kindIt = targetIt->second.find( aKind );
+
+        if( kindIt == targetIt->second.end() || !IsNumber( kindIt->second ) )
+            continue;
+
+        int aliasVersion = std::stoi( kindIt->second );
+
+        if( aVersion < aliasVersion && previousVersion >= 0 && aVersion > previousVersion )
+            return alias + "-dev";
+
+        previousVersion = aliasVersion;
+        previousAlias = alias;
+    }
+
+    if( previousVersion >= 0 && aVersion > previousVersion && !previousAlias.empty() )
+        return previousAlias + "+";
+
+    return std::string();
 }
 
 } // namespace
@@ -105,6 +166,46 @@ std::string TargetVersionSuffix( const std::string& aTarget )
             []( unsigned char c ) { return static_cast<char>( std::toupper( c ) ); } );
 
     return "V" + major;
+}
+
+
+std::string DisplayVersionAlias( KIND aKind, const std::string& aVersion )
+{
+    std::string version = Trim( aVersion );
+
+    if( version.empty() )
+        return version;
+
+    std::vector<std::string> aliases;
+    const auto& targets = targetVersions();
+
+    for( const std::string& alias : displayAliasOrder() )
+    {
+        auto targetIt = targets.find( alias );
+
+        if( targetIt == targets.end() )
+            continue;
+
+        auto kindIt = targetIt->second.find( aKind );
+
+        if( kindIt != targetIt->second.end() && kindIt->second == version )
+            aliases.push_back( alias );
+    }
+
+    if( aliases.empty() )
+    {
+        if( IsNumber( version ) )
+        {
+            std::string devAlias = developmentAliasForVersion( aKind, std::stoi( version ) );
+
+            if( !devAlias.empty() )
+                return devAlias + " (" + version + ")";
+        }
+
+        return version;
+    }
+
+    return joinAliases( aliases ) + " (" + version + ")";
 }
 
 

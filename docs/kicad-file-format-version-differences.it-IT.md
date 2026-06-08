@@ -662,7 +662,7 @@ La compatibilità riscrive:
 | `< 20230924` | Converti `pcbplotparams` `yes/no` booleani in `true/false`; converti il ​​riempimento della forma `no` in `none` |
 | `< 20230730` | Rimuovi la connettività della forma grafica `net` |
 | `< 20240108` | Converti elenchi booleani di caratteri in grassetto/corsivo in atomi legacy |
-| `< 20230620` | Converti le proprietà `Reference` e `Value` dell'impronta in `fp_text`; converti `Description` in `ki_description`; mappa `sheetname`/`sheetfile` alle proprietà |
+| `< 20230620` | Converti le proprietà `Reference` e `Value` dell'impronta in `fp_text reference` / `fp_text value`; questo è un requisito di compatibilità dei reference designator PCB. Converti `Description` in `ki_description`; mappa `sheetname`/`sheetfile` alle proprietà |
 | `< 20231231` | Rinominare i campi con ambito `uuid` in `tstamp`; rinomina il gruppo/generato `uuid` torna a `id` |
 | `< 20250324` | Rimuovi i campi del jumper pad dell'impronta: `duplicate_pad_numbers_are_jumpers` e `jumper_pad_groups` |
 | `<= 20221018` | Rimuovi gli attributi `dnp` dell'impronta, `net_tie_pad_groups`, `units` e `allow_missing_courtyard`; rimuovi pad/tramite `remove_unused_layers`; convertire le dimensioni in grafica visibile; rimuovi `locked` incompatibile con la versione precedente; downgrade gratuito tramite campi; convertire i blocchi grafici `stroke` PCB in campi `width` legacy |

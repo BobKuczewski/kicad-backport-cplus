@@ -1350,10 +1350,25 @@ std::unique_ptr<SEXPR::NODE> propertyNode( const std::string& aName, const std::
 bool isStandardSchProperty( const std::string& aName )
 {
     static const std::set<std::string> standard = {
-        "Reference", "Value", "Footprint", "Datasheet", "ki_keywords", "ki_fp_filters"
+        "Reference", "Value", "Footprint", "Datasheet", "ki_keywords", "ki_description",
+        "ki_fp_filters"
     };
 
     return standard.count( aName ) != 0;
+}
+
+
+int propertyIdValue( SEXPR::NODE* aProperty )
+{
+    if( !aProperty )
+        return -1;
+
+    SEXPR::NODE* id = aProperty->ChildList( "id" );
+
+    if( !id )
+        return -1;
+
+    return atomToInt( id->AtomAtView( 1 ), -1 );
 }
 
 
@@ -1367,6 +1382,34 @@ int ensureLegacyPropertyIds( SEXPR::NODE* aRoot )
 
     if( aRoot->HeadView() == "symbol" || aRoot->HeadView() == "sheet" )
     {
+        static const std::map<std::string, int> reservedStandardIds = {
+            { "Reference", 0 },
+            { "Value", 1 },
+            { "Footprint", 2 },
+            { "Datasheet", 3 },
+            { "ki_keywords", 4 },
+            { "ki_description", 5 },
+            { "ki_fp_filters", 6 },
+        };
+
+        std::set<int> usedIds;
+
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( !child || child->IsAtom() || child->HeadView() != "property" )
+                continue;
+
+            int existingId = propertyIdValue( child.get() );
+
+            if( existingId >= 0 )
+                usedIds.insert( existingId );
+
+            auto reserved = reservedStandardIds.find( child->AtomAt( 1 ) );
+
+            if( reserved != reservedStandardIds.end() )
+                usedIds.insert( reserved->second );
+        }
+
         int nextId = 5;
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
@@ -1377,12 +1420,16 @@ int ensureLegacyPropertyIds( SEXPR::NODE* aRoot )
             if( isStandardSchProperty( child->AtomAt( 1 ) ) || child->ChildList( "id" ) )
                 continue;
 
+            while( usedIds.count( nextId ) != 0 )
+                ++nextId;
+
             std::unique_ptr<SEXPR::NODE> id = SEXPR::NODE::MakeList();
             id->Children.push_back( SEXPR::NODE::MakeAtom( "id" ) );
-            id->Children.push_back( SEXPR::NODE::MakeAtom( std::to_string( nextId++ ) ) );
+            id->Children.push_back( SEXPR::NODE::MakeAtom( std::to_string( nextId ) ) );
 
             size_t insertAt = std::min<size_t>( 3, child->Children.size() );
             child->Children.insert( child->Children.begin() + insertAt, std::move( id ) );
+            usedIds.insert( nextId++ );
             ++changed;
         }
     }
@@ -1853,6 +1900,12 @@ std::unique_ptr<SEXPR::NODE> pcbPropertyToLegacyFPText( std::unique_ptr<SEXPR::N
 
         if( !child )
             continue;
+
+        if( child->IsAtom() && child->Atom == "hide" )
+        {
+            text->Children.push_back( std::move( child ) );
+            continue;
+        }
 
         if( !child->IsAtom() && child->HeadView() == "hide" )
         {

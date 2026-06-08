@@ -433,6 +433,51 @@ std::string firstQuotedValue( const std::string& aLine )
 }
 
 
+std::vector<std::string> quotedValues( const std::string& aLine )
+{
+    std::vector<std::string> values;
+    size_t pos = 0;
+
+    while( pos < aLine.size() )
+    {
+        size_t first = aLine.find( '"', pos );
+
+        if( first == std::string::npos )
+            break;
+
+        pos = first + 1;
+        std::string value;
+        bool escape = false;
+
+        while( pos < aLine.size() )
+        {
+            char ch = aLine[pos++];
+
+            if( escape )
+            {
+                value.push_back( ch );
+                escape = false;
+            }
+            else if( ch == '\\' )
+            {
+                escape = true;
+            }
+            else if( ch == '"' )
+            {
+                values.push_back( value );
+                break;
+            }
+            else
+            {
+                value.push_back( ch );
+            }
+        }
+    }
+
+    return values;
+}
+
+
 std::string quotedAttributeValue( const std::string& aLine, const std::string& aName )
 {
     std::string marker = aName + "=\"";
@@ -677,19 +722,34 @@ std::unique_ptr<SEXPR::NODE> atNodeXY( const std::string& aX, const std::string&
 }
 
 
-std::unique_ptr<SEXPR::NODE> effectsNode( bool aHidden = false )
+std::unique_ptr<SEXPR::NODE> effectsNode( bool aHidden = false,
+                                           const std::string& aSize = "1.27" )
 {
     std::unique_ptr<SEXPR::NODE> effects = listNode( "effects" );
     std::unique_ptr<SEXPR::NODE> font = listNode( "font" );
     std::unique_ptr<SEXPR::NODE> size = listNode( "size" );
-    appendAtom( size.get(), "1.27" );
-    appendAtom( size.get(), "1.27" );
+    appendAtom( size.get(), aSize );
+    appendAtom( size.get(), aSize );
     appendChild( font.get(), std::move( size ) );
     appendChild( effects.get(), std::move( font ) );
 
     if( aHidden )
         appendAtom( effects.get(), "hide" );
 
+    return effects;
+}
+
+
+std::unique_ptr<SEXPR::NODE> legacyPinEffectsNode( const std::string& aSize )
+{
+    std::string sizeValue = legacyCoordToMm( aSize.empty() ? "50" : aSize );
+    std::unique_ptr<SEXPR::NODE> effects = listNode( "effects" );
+    std::unique_ptr<SEXPR::NODE> font = listNode( "font" );
+    std::unique_ptr<SEXPR::NODE> size = listNode( "size" );
+    appendAtom( size.get(), sizeValue );
+    appendAtom( size.get(), sizeValue );
+    appendChild( font.get(), std::move( size ) );
+    appendChild( effects.get(), std::move( font ) );
     return effects;
 }
 
@@ -718,7 +778,8 @@ std::unique_ptr<SEXPR::NODE> schematicPropertyNode( const std::string& aName,
                                                     const std::string& aId,
                                                     bool aHidden,
                                                     const std::string& aAngle = "0",
-                                                    bool aUseId = true )
+                                                    bool aUseId = true,
+                                                    const std::string& aLegacySize = "50" )
 {
     std::unique_ptr<SEXPR::NODE> prop = listNode( "property" );
     appendAtom( prop.get(), aName, true );
@@ -728,7 +789,7 @@ std::unique_ptr<SEXPR::NODE> schematicPropertyNode( const std::string& aName,
     if( aUseId )
         appendChild( prop.get(), atomList( "id", aId ) );
 
-    appendChild( prop.get(), effectsNode( aHidden ) );
+    appendChild( prop.get(), effectsNode( aHidden, legacyCoordToMm( aLegacySize ) ) );
     return prop;
 }
 
@@ -754,8 +815,14 @@ std::unique_ptr<SEXPR::NODE> strokeNode( const std::string& aWidth )
 std::unique_ptr<SEXPR::NODE> fillNode( const std::string& aLegacyFill )
 {
     std::unique_ptr<SEXPR::NODE> fill = listNode( "fill" );
-    appendChild( fill.get(), atomList( "type", aLegacyFill == "F" || aLegacyFill == "f"
-                                       ? "background" : "none" ) );
+    std::string type = "none";
+
+    if( aLegacyFill == "F" )
+        type = "outline";
+    else if( aLegacyFill == "f" )
+        type = "background";
+
+    appendChild( fill.get(), atomList( "type", type ) );
     return fill;
 }
 
@@ -766,6 +833,22 @@ std::string strokeWidthLegacy( SEXPR::NODE* aNode )
     SEXPR::NODE* widthNode = stroke ? stroke->ChildList( "width" ) : nullptr;
     std::string width = widthNode ? widthNode->AtomAt( 1 ) : "0";
     return std::to_string( mmToLegacyCoord( width ) );
+}
+
+
+std::string fillLegacy( SEXPR::NODE* aNode )
+{
+    SEXPR::NODE* fill = aNode ? aNode->ChildList( "fill" ) : nullptr;
+    SEXPR::NODE* typeNode = fill ? fill->ChildList( "type" ) : nullptr;
+    std::string type = typeNode ? typeNode->AtomAt( 1 ) : "";
+
+    if( type == "outline" )
+        return "F";
+
+    if( type == "background" )
+        return "f";
+
+    return "N";
 }
 
 
@@ -948,6 +1031,7 @@ std::unique_ptr<SEXPR::NODE> schematicLabelNode( const std::string& aHead,
                                                  const std::string& aY,
                                                  const std::string& aOrientation,
                                                  const std::string& aShape,
+                                                 const std::string& aSize,
                                                  const std::string& aSeed )
 {
     std::unique_ptr<SEXPR::NODE> node = listNode( aHead );
@@ -958,7 +1042,7 @@ std::unique_ptr<SEXPR::NODE> schematicLabelNode( const std::string& aHead,
 
     appendChild( node.get(), atNode( legacyCoordToMm( aX ), legacyCoordToMm( aY ),
                                      legacyTextOrientationToAngle( aOrientation ) ) );
-    appendChild( node.get(), effectsNode() );
+    appendChild( node.get(), legacyPinEffectsNode( aSize ) );
     appendChild( node.get(), atomList( "uuid", deterministicUuid( aSeed ) ) );
     return node;
 }
@@ -1687,7 +1771,7 @@ void appendPinVisibilityNodes( SEXPR::NODE* aSymbol, bool aShowPinNumbers, bool 
     if( !aSymbol )
         return;
 
-    if( !aShowPinNumbers || !aShowPinNames )
+    if( !aShowPinNumbers )
     {
         std::unique_ptr<SEXPR::NODE> pinNumbers = listNode( "pin_numbers" );
         appendAtom( pinNumbers.get(), "hide" );
@@ -1780,6 +1864,8 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
             std::string tstamp;
             std::string sheetName = "Sheet";
             std::string sheetFile;
+            std::string sheetNameSize = "50";
+            std::string sheetFileSize = "50";
             std::vector<std::unique_ptr<SEXPR::NODE>> sheetPins;
 
             while( i + 1 < lines.size() )
@@ -1809,11 +1895,17 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
                 else if( words[0] == "F0" )
                 {
                     sheetName = firstQuotedValue( item );
+
+                    if( words.size() > 2 )
+                        sheetNameSize = words[2];
                 }
                 else if( words[0] == "F1" )
                 {
                     sheetFile = replaceTrailingExtension( firstQuotedValue( item ), ".sch",
                                                           ".kicad_sch" );
+
+                    if( words.size() > 2 )
+                        sheetFileSize = words[2];
                 }
                 else if( words[0].size() > 1 && words[0][0] == 'F'
                          && IsNumber( words[0].substr( 1 ) )
@@ -1831,7 +1923,7 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
                         appendChild( pin.get(), atNode( legacyCoordToMm( pinWords[2] ),
                                                         legacyCoordToMm( pinWords[3] ),
                                                         legacyTextOrientationToAngle( pinWords[1] ) ) );
-                        appendChild( pin.get(), effectsNode() );
+                        appendChild( pin.get(), legacyPinEffectsNode( pinWords[4] ) );
                         appendChild( pin.get(), atomList( "uuid", deterministicUuid(
                                 aDocument.Path.string() + ":sheet-pin:" + item ) ) );
                         sheetPins.push_back( std::move( pin ) );
@@ -1852,9 +1944,11 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
             appendChild( sheet.get(), std::move( size ) );
             appendChild( sheet.get(), atomList( "uuid", uuid ) );
             appendChild( sheet.get(), schematicPropertyNode( "Sheet name", sheetName, x, y, "0",
-                                                             false, "0", usePropertyIds ) );
+                                                             false, "0", usePropertyIds,
+                                                             sheetNameSize ) );
             appendChild( sheet.get(), schematicPropertyNode( "Sheet file", sheetFile, x, y, "1",
-                                                             false, "0", usePropertyIds ) );
+                                                             false, "0", usePropertyIds,
+                                                             sheetFileSize ) );
 
             for( std::unique_ptr<SEXPR::NODE>& pin : sheetPins )
                 appendChild( sheet.get(), std::move( pin ) );
@@ -1889,11 +1983,21 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
                 std::string X = "0";
                 std::string Y = "0";
                 std::string Angle = "0";
+                std::string Size = "50";
             };
             FIELD_STATE referenceField;
             FIELD_STATE valueField;
             FIELD_STATE footprintField;
             FIELD_STATE datasheetField;
+            struct CUSTOM_FIELD
+            {
+                std::string Name;
+                std::string Value;
+                std::string Id;
+                bool Hidden = false;
+                FIELD_STATE State;
+            };
+            std::vector<CUSTOM_FIELD> customFields;
             struct AR_INSTANCE
             {
                 std::string Path;
@@ -1948,6 +2052,9 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
                             field.Y = legacyCoordToMm( fieldWords[2] );
                         }
 
+                        if( fieldWords.size() >= 4 )
+                            field.Size = fieldWords[3];
+
                         return field;
                     };
 
@@ -1980,6 +2087,18 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
                         datasheet = fieldValue;
                         datasheetField = parseFieldState();
                         datasheetHidden = legacyFieldHidden( words, true );
+                    }
+                    else if( IsNumber( words[1] ) && std::stoi( words[1] ) >= 4 )
+                    {
+                        std::vector<std::string> values = quotedValues( item );
+                        CUSTOM_FIELD field;
+                        field.Name = values.size() > 1 && !values.back().empty()
+                                ? values.back() : "Field" + words[1];
+                        field.Value = !values.empty() ? values.front() : fieldValue;
+                        field.Id = words[1];
+                        field.Hidden = legacyFieldHidden( words, false );
+                        field.State = parseFieldState();
+                        customFields.push_back( field );
                     }
                 }
                 else if( words[0] == "AR" )
@@ -2051,16 +2170,24 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
             appendChild( symbol.get(), atomList( "uuid", uuid ) );
             appendChild( symbol.get(), schematicPropertyNode( "Reference", reference,
                     referenceField.X, referenceField.Y, "0", referenceHidden,
-                    referenceField.Angle, usePropertyIds ) );
+                    referenceField.Angle, usePropertyIds, referenceField.Size ) );
             appendChild( symbol.get(), schematicPropertyNode( "Value", value,
                     valueField.X, valueField.Y, "1", valueHidden,
-                    valueField.Angle, usePropertyIds ) );
+                    valueField.Angle, usePropertyIds, valueField.Size ) );
             appendChild( symbol.get(), schematicPropertyNode( "Footprint", footprint,
                     footprintField.X, footprintField.Y, "2", footprintHidden,
-                    footprintField.Angle, usePropertyIds ) );
+                    footprintField.Angle, usePropertyIds, footprintField.Size ) );
             appendChild( symbol.get(), schematicPropertyNode( "Datasheet", datasheet,
                     datasheetField.X, datasheetField.Y, "3", datasheetHidden,
-                    datasheetField.Angle, usePropertyIds ) );
+                    datasheetField.Angle, usePropertyIds, datasheetField.Size ) );
+
+            for( const CUSTOM_FIELD& field : customFields )
+            {
+                appendChild( symbol.get(), schematicPropertyNode( field.Name, field.Value,
+                        field.State.X, field.State.Y, field.Id, field.Hidden,
+                        field.State.Angle, usePropertyIds, field.State.Size ) );
+            }
+
             appendSchematicSymbolPins( symbol.get(), symbolDef,
                                        aDocument.Path.string() + ":comp:" + block.str() );
             appendChild( root.get(), std::move( symbol ) );
@@ -2156,18 +2283,19 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
             std::string text = lines[++i];
             std::string head;
             std::string shape;
+            std::string size = words[5];
 
             if( words[1] == "Label" )
                 head = "label";
             else if( words[1] == "GLabel" )
             {
                 head = "global_label";
-                shape = words.size() > 5 ? words[5] : "UnSpc";
+                shape = words.size() > 6 ? words[6] : "UnSpc";
             }
             else if( words[1] == "HLabel" )
             {
                 head = "hierarchical_label";
-                shape = words.size() > 5 ? words[5] : "UnSpc";
+                shape = words.size() > 6 ? words[6] : "UnSpc";
             }
             else if( words[1] == "Notes" )
                 head = "text";
@@ -2175,7 +2303,8 @@ std::string legacySchematicToSexpr( const DOCUMENT& aDocument,
             if( !head.empty() )
             {
                 appendChild( root.get(), schematicLabelNode( head, text, words[2], words[3],
-                        words[4], shape, aDocument.Path.string() + ":text:" + line + ":" + text ) );
+                        words[4], shape, size,
+                        aDocument.Path.string() + ":text:" + line + ":" + text ) );
                 ++convertedLabels;
             }
         }
@@ -2247,6 +2376,27 @@ std::string legacyPinTypeToSexpr( const std::string& aType )
 }
 
 
+std::string legacyPinShapeToSexpr( const std::string& aShape )
+{
+    std::string value = Lower( aShape );
+
+    if( value.find( 'x' ) != std::string::npos ) return "non_logic";
+    if( value.find( 'f' ) != std::string::npos ) return "edge_clock_high";
+    if( value.find( 'v' ) != std::string::npos ) return "output_low";
+
+    if( value.find( 'l' ) != std::string::npos )
+        return value.find( 'c' ) != std::string::npos ? "clock_low" : "input_low";
+
+    if( value.find( 'c' ) != std::string::npos
+        && value.find( 'i' ) != std::string::npos )
+        return "inverted_clock";
+
+    if( value.find( 'c' ) != std::string::npos ) return "clock";
+    if( value.find( 'i' ) != std::string::npos ) return "inverted";
+    return "line";
+}
+
+
 std::string sexprPinTypeToLegacy( const std::string& aType )
 {
     if( aType == "input" ) return "I";
@@ -2259,6 +2409,20 @@ std::string sexprPinTypeToLegacy( const std::string& aType )
     if( aType == "open_emitter" ) return "E";
     if( aType == "no_connect" ) return "N";
     return "P";
+}
+
+
+std::string sexprPinShapeToLegacy( const std::string& aShape )
+{
+    if( aShape == "inverted" ) return "I";
+    if( aShape == "clock" ) return "C";
+    if( aShape == "inverted_clock" ) return "IC";
+    if( aShape == "input_low" ) return "L";
+    if( aShape == "clock_low" ) return "CL";
+    if( aShape == "output_low" ) return "V";
+    if( aShape == "edge_clock_high" ) return "F";
+    if( aShape == "non_logic" ) return "X";
+    return "";
 }
 
 
@@ -2294,8 +2458,9 @@ std::unique_ptr<SEXPR::NODE> legacyPinNode( const std::vector<std::string>& aWor
         return nullptr;
 
     std::unique_ptr<SEXPR::NODE> pin = listNode( "pin" );
+    std::string shape = aWords.size() > 12 ? aWords[12] : "";
     appendAtom( pin.get(), legacyPinTypeToSexpr( aWords[11] ) );
-    appendAtom( pin.get(), "line" );
+    appendAtom( pin.get(), legacyPinShapeToSexpr( shape ) );
     appendChild( pin.get(), atNode( legacyCoordToMm( aWords[3] ),
                                     legacyCoordToMm( aWords[4] ),
                                     legacyPinOrientationToAngle( aWords[6] ) ) );
@@ -2303,13 +2468,17 @@ std::unique_ptr<SEXPR::NODE> legacyPinNode( const std::vector<std::string>& aWor
 
     std::unique_ptr<SEXPR::NODE> name = listNode( "name" );
     appendAtom( name.get(), aWords[1], true );
-    appendChild( name.get(), effectsNode() );
+    appendChild( name.get(), legacyPinEffectsNode( aWords.size() > 7 ? aWords[7] : "50" ) );
     appendChild( pin.get(), std::move( name ) );
 
     std::unique_ptr<SEXPR::NODE> number = listNode( "number" );
     appendAtom( number.get(), aWords[2], true );
-    appendChild( number.get(), effectsNode() );
+    appendChild( number.get(), legacyPinEffectsNode( aWords.size() > 8 ? aWords[8] : "50" ) );
     appendChild( pin.get(), std::move( number ) );
+
+    if( Lower( shape ).find( 'n' ) != std::string::npos )
+        appendAtom( pin.get(), "hide" );
+
     return pin;
 }
 
@@ -3019,6 +3188,212 @@ std::string legacyLibraryTextOrientation( SEXPR::NODE* aAt )
 }
 
 
+std::string legacyLibraryFieldOrientation( SEXPR::NODE* aAt )
+{
+    int angle = aAt ? roundedRightAngle( aAt->AtomAt( 3 ) ) : 0;
+    return angle == 90 || angle == 270 ? "V" : "H";
+}
+
+
+bool sexprBoolValue( const std::string& aValue, bool aDefault )
+{
+    std::string value = Lower( aValue );
+
+    if( value == "yes" || value == "true" || value == "1" )
+        return true;
+
+    if( value == "no" || value == "false" || value == "0" )
+        return false;
+
+    return aDefault;
+}
+
+
+bool nodeHasAtom( SEXPR::NODE* aNode, const std::string& aAtom )
+{
+    if( !aNode )
+        return false;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
+    {
+        if( child && child->IsAtom()
+            && std::string_view( child->Atom.data(), child->Atom.size() ) == aAtom )
+            return true;
+    }
+
+    return false;
+}
+
+
+bool propertyHidden( SEXPR::NODE* aNode, bool aDefaultHidden )
+{
+    if( !aNode )
+        return aDefaultHidden;
+
+    SEXPR::NODE* hide = aNode->ChildList( "hide" );
+
+    if( hide )
+        return sexprBoolValue( hide->AtomAt( 1 ), true );
+
+    SEXPR::NODE* effects = aNode->ChildList( "effects" );
+
+    if( !effects )
+        return false;
+
+    if( nodeHasAtom( effects, "hide" ) )
+        return true;
+
+    return false;
+}
+
+
+std::string symbolPinVisibilityFlag( SEXPR::NODE* aSymbol, const std::string& aHead )
+{
+    SEXPR::NODE* node = aSymbol ? aSymbol->ChildList( aHead ) : nullptr;
+
+    if( !node )
+        return "Y";
+
+    if( node->AtomAt( 1 ) == "hide" )
+        return "N";
+
+    SEXPR::NODE* hide = node->ChildList( "hide" );
+    return hide && sexprBoolValue( hide->AtomAt( 1 ), true ) ? "N" : "Y";
+}
+
+
+std::string effectsFontSizeLegacy( SEXPR::NODE* aNode )
+{
+    SEXPR::NODE* effects = aNode ? aNode->ChildList( "effects" ) : nullptr;
+    SEXPR::NODE* font = effects ? effects->ChildList( "font" ) : nullptr;
+    SEXPR::NODE* size = font ? font->ChildList( "size" ) : nullptr;
+
+    if( size && !size->AtomAt( 1 ).empty() )
+        return std::to_string( mmToLegacyCoord( size->AtomAt( 1 ) ) );
+
+    return "50";
+}
+
+
+std::string pinTextSizeLegacy( SEXPR::NODE* aPin, const std::string& aHead )
+{
+    SEXPR::NODE* node = aPin ? aPin->ChildList( aHead ) : nullptr;
+    return effectsFontSizeLegacy( node );
+}
+
+
+bool sexprPinHidden( SEXPR::NODE* aPin )
+{
+    if( !aPin )
+        return false;
+
+    SEXPR::NODE* hide = aPin->ChildList( "hide" );
+
+    if( hide )
+        return sexprBoolValue( hide->AtomAt( 1 ), true );
+
+    return nodeHasAtom( aPin, "hide" );
+}
+
+
+std::pair<std::string, std::string> legacySubsymbolUnitConvert( const std::string& aName )
+{
+    size_t second = aName.rfind( '_' );
+
+    if( second == std::string::npos || second == 0 )
+        return { "1", "1" };
+
+    size_t first = aName.rfind( '_', second - 1 );
+
+    if( first == std::string::npos )
+        return { "1", "1" };
+
+    std::string unit = aName.substr( first + 1, second - first - 1 );
+    std::string convert = aName.substr( second + 1 );
+
+    if( IsNumber( unit ) && IsNumber( convert ) )
+        return { unit, convert };
+
+    return { "1", "1" };
+}
+
+
+int symbolLegacyUnitCount( SEXPR::NODE* aSymbol )
+{
+    int count = 1;
+
+    if( !aSymbol )
+        return count;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aSymbol->Children )
+    {
+        if( child && !child->IsAtom() && child->HeadView() == "symbol" )
+        {
+            auto unitConvert = legacySubsymbolUnitConvert( child->AtomAt( 1 ) );
+
+            if( IsNumber( unitConvert.first ) )
+                count = std::max( count, std::stoi( unitConvert.first ) );
+        }
+    }
+
+    return count;
+}
+
+
+void writeLegacyLibraryStandardPropertyField( std::ostringstream& aOut, SEXPR::NODE* aSymbol,
+                                              int aIndex, const std::string& aName,
+                                              bool aDefaultHidden )
+{
+    SEXPR::NODE* prop = propertyNode( aSymbol, aName );
+    SEXPR::NODE* at = prop ? prop->ChildList( "at" ) : nullptr;
+    int x = at ? mmToLegacyCoord( at->AtomAt( 1 ) ) : 0;
+    int y = at ? mmToLegacyCoord( at->AtomAt( 2 ) ) : 0;
+    bool hidden = propertyHidden( prop, aDefaultHidden );
+
+    aOut << "F" << aIndex << " "
+         << legacyQuote( prop ? prop->AtomAt( 2 ) : "" )
+         << " " << x << " " << y << " 50 "
+         << legacyLibraryFieldOrientation( at ) << " " << ( hidden ? "I" : "V" )
+         << " C CNN\n";
+}
+
+
+void writeLegacyLibraryCustomPropertyFields( std::ostringstream& aOut, SEXPR::NODE* aSymbol )
+{
+    static const std::set<std::string> skip =
+    {
+        "Reference", "Value", "Footprint", "Datasheet",
+        "Description", "ki_description", "ki_keywords"
+    };
+
+    if( !aSymbol )
+        return;
+
+    int index = 4;
+
+    for( const std::unique_ptr<SEXPR::NODE>& child : aSymbol->Children )
+    {
+        if( !child || child->IsAtom() || child->HeadView() != "property" )
+            continue;
+
+        std::string name = child->AtomAt( 1 );
+
+        if( skip.count( name ) )
+            continue;
+
+        SEXPR::NODE* at = child->ChildList( "at" );
+        int x = at ? mmToLegacyCoord( at->AtomAt( 1 ) ) : 0;
+        int y = at ? mmToLegacyCoord( at->AtomAt( 2 ) ) : 0;
+
+        aOut << "F" << index++ << " " << legacyQuote( child->AtomAt( 2 ) )
+             << " " << x << " " << y << " 50 "
+             << legacyLibraryFieldOrientation( at ) << " "
+             << ( propertyHidden( child.get(), false ) ? "I" : "V" )
+             << " C CNN " << legacyQuote( name ) << "\n";
+    }
+}
+
+
 void writeLegacySchematicField( std::ostringstream& aOut, int aIndex,
                                 SEXPR::NODE* aSymbol, const std::string& aName,
                                 const std::string& aValue, int aFallbackX,
@@ -3403,7 +3778,8 @@ std::vector<SEXPR::NODE*> topLevelSymbols( SEXPR::NODE* aRoot )
 }
 
 
-void writeLegacyPins( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& aCount )
+void writeLegacyPins( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& aCount,
+                      const std::string& aUnit = "1", const std::string& aConvert = "1" )
 {
     if( !aSymbol )
         return;
@@ -3430,21 +3806,35 @@ void writeLegacyPins( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& aCoun
             int y = at ? mmToLegacyCoord( at->AtomAt( 2 ) ) : 0;
             int len = length.empty() ? 100 : mmToLegacyCoord( length );
             std::string angle = at ? at->AtomAt( 3 ) : "0";
+            std::string shape = sexprPinShapeToLegacy( child->AtomAt( 2 ) );
+
+            if( sexprPinHidden( child.get() ) && shape.find( 'N' ) == std::string::npos )
+                shape += "N";
 
             aOut << "X " << name << " " << number << " " << x << " " << y << " "
                  << len << " " << sexprPinAngleToOrientation( angle )
-                 << " 50 50 1 1 " << sexprPinTypeToLegacy( child->AtomAt( 1 ) ) << "\n";
+                 << " " << pinTextSizeLegacy( child.get(), "name" )
+                 << " " << pinTextSizeLegacy( child.get(), "number" )
+                 << " " << aUnit << " " << aConvert << " "
+                 << sexprPinTypeToLegacy( child->AtomAt( 1 ) );
+
+            if( !shape.empty() )
+                aOut << " " << shape;
+
+            aOut << "\n";
             ++aCount;
         }
         else if( child->HeadView() == "symbol" )
         {
-            writeLegacyPins( aOut, child.get(), aCount );
+            auto unitConvert = legacySubsymbolUnitConvert( child->AtomAt( 1 ) );
+            writeLegacyPins( aOut, child.get(), aCount, unitConvert.first, unitConvert.second );
         }
     }
 }
 
 
-void writeLegacyDrawItems( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& aCount )
+void writeLegacyDrawItems( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& aCount,
+                           const std::string& aUnit = "1", const std::string& aConvert = "1" )
 {
     if( !aSymbol )
         return;
@@ -3466,7 +3856,8 @@ void writeLegacyDrawItems( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& 
                  << " " << mmToLegacyCoord( start->AtomAt( 2 ) )
                  << " " << mmToLegacyCoord( end->AtomAt( 1 ) )
                  << " " << mmToLegacyCoord( end->AtomAt( 2 ) )
-                 << " 1 1 " << strokeWidthLegacy( child.get() ) << " N\n";
+                 << " " << aUnit << " " << aConvert << " " << strokeWidthLegacy( child.get() )
+                 << " " << fillLegacy( child.get() ) << "\n";
             ++aCount;
         }
         else if( child->HeadView() == "polyline" )
@@ -3478,7 +3869,8 @@ void writeLegacyDrawItems( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& 
             if( points.empty() )
                 continue;
 
-            aOut << "P " << points.size() << " 1 1 " << strokeWidthLegacy( child.get() );
+            aOut << "P " << points.size() << " " << aUnit << " " << aConvert
+                 << " " << strokeWidthLegacy( child.get() );
 
             for( SEXPR::NODE* point : points )
             {
@@ -3486,7 +3878,7 @@ void writeLegacyDrawItems( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& 
                      << " " << mmToLegacyCoord( point->AtomAt( 2 ) );
             }
 
-            aOut << " N\n";
+            aOut << " " << fillLegacy( child.get() ) << "\n";
             ++aCount;
         }
         else if( child->HeadView() == "circle" )
@@ -3500,7 +3892,8 @@ void writeLegacyDrawItems( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& 
             aOut << "C " << mmToLegacyCoord( center->AtomAt( 1 ) )
                  << " " << mmToLegacyCoord( center->AtomAt( 2 ) )
                  << " " << mmToLegacyCoord( radius )
-                 << " 1 1 " << strokeWidthLegacy( child.get() ) << " N\n";
+                 << " " << aUnit << " " << aConvert << " " << strokeWidthLegacy( child.get() )
+                 << " " << fillLegacy( child.get() ) << "\n";
             ++aCount;
         }
         else if( child->HeadView() == "arc" )
@@ -3521,8 +3914,9 @@ void writeLegacyDrawItems( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& 
             aOut << "A " << mmToLegacyCoord( mid->AtomAt( 1 ) )
                  << " " << mmToLegacyCoord( mid->AtomAt( 2 ) )
                  << " " << radius
-                 << " 0 0 1 1 " << strokeWidthLegacy( child.get() )
-                 << " N " << mmToLegacyCoord( start->AtomAt( 1 ) )
+                 << " 0 0 " << aUnit << " " << aConvert << " " << strokeWidthLegacy( child.get() )
+                 << " " << fillLegacy( child.get() )
+                 << " " << mmToLegacyCoord( start->AtomAt( 1 ) )
                  << " " << mmToLegacyCoord( start->AtomAt( 2 ) )
                  << " " << mmToLegacyCoord( end->AtomAt( 1 ) )
                  << " " << mmToLegacyCoord( end->AtomAt( 2 ) ) << "\n";
@@ -3538,13 +3932,17 @@ void writeLegacyDrawItems( std::ostringstream& aOut, SEXPR::NODE* aSymbol, int& 
             aOut << "T " << legacyLibraryTextOrientation( at )
                  << " " << mmToLegacyCoord( at->AtomAt( 1 ) )
                  << " " << mmToLegacyCoord( at->AtomAt( 2 ) )
-                 << " 50 0 1 1 " << legacyQuote( child->AtomAt( 1 ) )
+                 << " " << effectsFontSizeLegacy( child.get() )
+                 << " 0 " << aUnit << " " << aConvert << " "
+                 << legacyQuote( child->AtomAt( 1 ) )
                  << " Normal 0 C C\n";
             ++aCount;
         }
         else if( child->HeadView() == "symbol" )
         {
-            writeLegacyDrawItems( aOut, child.get(), aCount );
+            auto unitConvert = legacySubsymbolUnitConvert( child->AtomAt( 1 ) );
+            writeLegacyDrawItems( aOut, child.get(), aCount, unitConvert.first,
+                                  unitConvert.second );
         }
     }
 }
@@ -3582,10 +3980,15 @@ std::string sexprSymbolLibraryToLegacy( const DOCUMENT& aDocument, int aTargetMa
         if( reference.empty() )
             reference = libraryReferencePrefix( name );
 
+        std::string showPinNumbers = symbolPinVisibilityFlag( symbol, "pin_numbers" );
+        std::string showPinNames = symbolPinVisibilityFlag( symbol, "pin_names" );
+        int unitCount = symbolLegacyUnitCount( symbol );
+
         out << "#\n";
         out << "# " << name << "\n";
         out << "#\n";
-        out << "DEF " << name << " " << reference << " 0 40 Y Y 1 F N\n";
+        out << "DEF " << name << " " << reference << " 0 40 "
+            << showPinNumbers << " " << showPinNames << " " << unitCount << " F N\n";
 
         auto aliases = aliasesByBase.find( name );
 
@@ -3604,6 +4007,9 @@ std::string sexprSymbolLibraryToLegacy( const DOCUMENT& aDocument, int aTargetMa
 
         out << "F0 " << legacyQuote( reference ) << " 0 0 50 H V C CNN\n";
         out << "F1 " << legacyQuote( name ) << " 0 -100 50 H V C CNN\n";
+        writeLegacyLibraryStandardPropertyField( out, symbol, 2, "Footprint", true );
+        writeLegacyLibraryStandardPropertyField( out, symbol, 3, "Datasheet", true );
+        writeLegacyLibraryCustomPropertyFields( out, symbol );
         out << "DRAW\n";
         writeLegacyDrawItems( out, symbol, drawCount );
         writeLegacyPins( out, symbol, pinCount );

@@ -662,7 +662,7 @@ KiCad プロジェクト入力と共通のローカル 3D モデル ファイル
 | `< 20230924` | `pcbplotparams` `yes/no` ブール値を `true/false` に変換します。形状塗りつぶし `no` を `none` に変換します |
 | `< 20230730` | グラフィック形状 `net` 接続を削除します |
 | `< 20240108` | フォントの太字/斜体のブールリストをレガシーアトムに変換 |
-| `< 20230620` | フットプリントの `Reference` プロパティと `Value` プロパティを `fp_text` に変換します。 `Description` を `ki_description` に変換します。 `sheetname`/`sheetfile` をプロパティにマップする |
+| `< 20230620` | フットプリントの `Reference` プロパティと `Value` プロパティを `fp_text reference` / `fp_text value` に変換します。これは PCB リファレンス指定子の互換性要件です。 `Description` を `ki_description` に変換します。 `sheetname`/`sheetfile` をプロパティにマップする |
 | `< 20231231` | スコープ付き `uuid` フィールドの名前を `tstamp` に戻します。グループ/生成された `uuid` の名前を `id` に戻します |
 | `< 20250324` | フットプリント ジャンパ パッド フィールドを削除します: `duplicate_pad_numbers_are_jumpers` および `jumper_pad_groups` |
 | `<= 20221018` | フットプリント `dnp` 属性、`net_tie_pad_groups`、`units`、および `allow_missing_courtyard` を削除します。パッド/via `remove_unused_layers` を削除します。寸法を表示可能なグラフィックスに変換します。レガシー互換性のない `locked` を削除します。フィールド経由で無料でダウングレードします。 PCB グラフィックの `stroke` ブロックを従来の `width` フィールドに変換します |

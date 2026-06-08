@@ -651,7 +651,7 @@ Kompatibilitätsänderungen:
 | `< 20230924` | Konvertieren Sie `pcbplotparams` `yes/no` Boolesche Werte in `true/false`; Formfüllung `no` in `none` umwandeln |
 | `< 20230730` | Entfernen Sie die Konnektivität der grafischen Form `net` |
 | `< 20240108` | Konvertieren Sie boolesche Listen in Fett-/Kursivschrift in alte Atome |
-| `< 20230620` | Konvertieren Sie die Footprint-Eigenschaften `Reference` und `Value` zurück in `fp_text`; `Description` in `ki_description` konvertieren; Ordnen Sie `sheetname`/`sheetfile` den Eigenschaften zu |
+| `< 20230620` | Konvertieren Sie die Footprint-Eigenschaften `Reference` und `Value` zurück in `fp_text reference` / `fp_text value`; dies ist eine PCB-Referenzbezeichner-Kompatibilitätsanforderung. `Description` in `ki_description` konvertieren; Ordnen Sie `sheetname`/`sheetfile` den Eigenschaften zu |
 | `< 20231231` | Benennen Sie die bereichsbezogenen `uuid`-Felder wieder in `tstamp` um; Benennen Sie die Gruppe/den generierten `uuid` wieder in `id` um. |
 | `< 20250324` | Entfernen Sie die Footprint-Jumper-Pad-Felder: `duplicate_pad_numbers_are_jumpers` und `jumper_pad_groups` |
 | `<= 20221018` | Entfernen Sie die Footprint-Attribute `dnp`, `net_tie_pad_groups`, `units` und `allow_missing_courtyard`; Pad/Via entfernen `remove_unused_layers`; Bemaßungen in sichtbare Grafiken umwandeln; Legacy-inkompatiblen `locked` entfernen; Downgrade kostenlos über Felder; Konvertieren Sie PCB-Grafik-`stroke`-Blöcke in ältere `width`-Felder |

@@ -662,7 +662,7 @@ Reescrituras de compatibilidad:
 | `< 20230924` | Convierta los valores booleanos `pcbplotparams` `yes/no` a `true/false`; convertir relleno de forma `no` a `none` |
 | `< 20230730` | Eliminar la conectividad de la forma gráfica `net` |
 | `< 20240108` | Convierta listas booleanas en negrita/cursiva a átomos heredados |
-| `< 20230620` | Convierta las propiedades de huella `Reference` y `Value` nuevamente a `fp_text`; convertir `Description` a `ki_description`; asignar `sheetname`/`sheetfile` a propiedades |
+| `< 20230620` | Convierta las propiedades de huella `Reference` y `Value` nuevamente a `fp_text reference` / `fp_text value`; este es un requisito de compatibilidad de designadores de referencia PCB. Convertir `Description` a `ki_description`; asignar `sheetname`/`sheetfile` a propiedades |
 | `< 20231231` | Cambie el nombre de los campos `uuid` con alcance a `tstamp`; cambiar el nombre del grupo/generado `uuid` de nuevo a `id` |
 | `< 20250324` | Eliminar los campos del panel de puente de huella: `duplicate_pad_numbers_are_jumpers` y `jumper_pad_groups` |
 | `<= 20221018` | Eliminar los atributos de huella `dnp`, `net_tie_pad_groups`, `units` y `allow_missing_courtyard`; quitar la almohadilla/vía `remove_unused_layers`; convertir dimensiones en gráficos visibles; eliminar `locked` incompatible con el legado; bajar de categoría gratis a través de campos; convertir bloques `stroke` gráficos de PCB en campos `width` heredados |

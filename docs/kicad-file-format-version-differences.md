@@ -125,6 +125,14 @@ The current C++ implementation handles this boundary explicitly:
 | V6+ `.kicad_pro` -> legacy `.pro` | Writes minimal legacy project settings and library names restored from JSON or local library tables. |
 | V4 <-> V5 legacy files | Rewrites legacy `.sch` and `.lib` headers for the requested major version while preserving raw records; it does not yet simplify every V4/V5-specific feature. |
 
+PCB / footprint reference handling is separate from schematic reference
+handling. Newer board / footprint formats can store footprint `Reference` and
+`Value` as properties; older targets (`< 20230620`, including V6/V7 and V4/V5
+PCB targets) need those fields written back as `fp_text reference` /
+`fp_text value`. Because V5/V4 targets later remove incompatible footprint
+properties, the conversion must write reference properties to `fp_text` before
+removing the remaining properties.
+
 ## Current Development Version Matrix
 
 The reviewed KiCad `master` branch has already moved into 11.0 development.
@@ -736,7 +744,7 @@ Compatibility rewrites:
 | `< 20230924` | Convert `pcbplotparams` `yes/no` booleans to `true/false`; convert shape fill `no` to `none` |
 | `< 20230730` | Remove graphic shape `net` connectivity |
 | `< 20240108` | Convert font bold/italic boolean lists to legacy atoms |
-| `< 20230620` | Convert footprint `Reference` and `Value` properties back to `fp_text`; convert `Description` to `ki_description`; map `sheetname`/`sheetfile` to properties |
+| `< 20230620` | Convert footprint `Reference` and `Value` properties back to `fp_text reference` / `fp_text value` as a PCB reference-designator compatibility requirement; convert `Description` to `ki_description`; map `sheetname`/`sheetfile` to properties |
 | `< 20231231` | Rename scoped `uuid` fields back to `tstamp`; rename group/generated `uuid` back to `id` |
 | `< 20250324` | Remove footprint jumper pad fields: `duplicate_pad_numbers_are_jumpers` and `jumper_pad_groups` |
 | `<= 20221018` | Remove footprint `dnp` attributes, `net_tie_pad_groups`, `units`, and `allow_missing_courtyard`; remove pad/via `remove_unused_layers`; convert dimensions to visible graphics; remove legacy-incompatible `locked`; downgrade free via fields; convert PCB graphic `stroke` blocks to legacy `width` fields |

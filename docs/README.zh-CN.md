@@ -27,18 +27,26 @@ KiCad Backport 降级 CLI 的独立 C++17 实现。工具
 ```text
 kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
+kicad-backport detect-versions [--json] <input>
 kicad-backport version
 ```
 
 converter读取 KiCad S-表达式文件，应用版本驱动的降级
 规则，写入版本后缀的输出路径，并且可以复制整个 KiCad 项目
-规范化副本中的所有 KiCad 文件之前的目录。
+规范化副本中的所有 KiCad 文件之前的目录。执行转换时会输出每个 KiCad
+文件检测到的源文件版本号和解析后的目标文件版本号；面向人的文本输出会优先显示
+`9.0 (20241229)` 或 `10.99-dev (20260513)` 这类 KiCad 版本别名，
+而不是只显示原始文件格式版本号。`detect-versions` 是极速目录扫描命令，
+只读取足够的文件文本来报告 KiCad 相关文件类型和版本；普通文本输出同样使用版本别名，
+JSON report 仍保留原始文件格式版本号。它会先按支持的 KiCad 文件后缀过滤，
+无法识别版本的文件不会出现在结果中。
 
 示例：
 
 ```powershell
 .\dist\kicad-backport-windows-amd64.exe convert --target-version 9.0 E:\tmp\project E:\tmp\project_V9
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
+.\dist\kicad-backport-windows-amd64.exe detect-versions E:\tmp\project
 ```
 
 支持的版本别名为 `4.0`、`5.0`、`5.1`、`6.0`、`7.0`、`8.0`、`9.0`、`10.0` 和 `10.99`。测试特定解析器截止点时，也可以传入原始 KiCad 文件格式版本号。
@@ -128,6 +136,14 @@ kicad-backport-cplus/
 ./build.sh
 ```
 
+如果只需要当前 Linux 或 macOS 主机的原生二进制，而不需要标准跨目标分派，
+使用原生构建入口：
+
+```sh
+./build-linux.sh
+./build-macos.sh
+```
+
 之前自动检测并安装最小的实用工具链
 建筑：
 
@@ -152,12 +168,18 @@ kicad-backport-cplus/
 使用 `.\build.ps1 -Clean` 或 `./build.sh --clean` 删除以前的构建
 重建前的输出。
 
+使用 `./build-linux.sh --clean` 或 `./build-macos.sh --clean` 只清理对应
+原生构建目录和输出。两个原生脚本都支持 `--config <name>`、
+`--generator <cmake-generator>` 和 `--jobs <n>`。
+
 C++交叉编译需要平台工具链。在 Windows 上，`build.ps1`
 使用 Visual Studio 构建 `windows-amd64` 和 `windows-arm64`，并构建
 当 WSL 工具链可用时，通过 WSL `linux-amd64`/`linux-arm64` 。
 在 Linux 上，`build.sh` 构建本机 Linux，并且可以在以下情况下构建 `linux-arm64`：
 `aarch64-linux-gnu-g++` 已安装。在 macOS 上，`build.sh` 构建 Darwin
 amd64/arm64 与 Apple SDK。 Darwin 二进制文件必须在 macOS 上生成。
+如果只做严格原生构建，`build-linux.sh` 使用主机 Linux C++ 工具链，
+`build-macos.sh` 通过 `xcrun` 使用 Apple Command Line Tools。
 
 要构建子集：
 
@@ -201,6 +223,10 @@ cmake --build build --config Release
 
 该实现有意无依赖并遵循 KiCad 风格的 C++
 格式约定。
+
+## 致谢
+
+特别感谢 Hubert 在开发本项目的过程中提供的帮助。
 
 ## 验证
 

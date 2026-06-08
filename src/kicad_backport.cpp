@@ -59,6 +59,198 @@ bool isLibraryTablePath( const std::filesystem::path& aPath )
 }
 
 
+bool isTokenChar( char aCh )
+{
+    return !std::isspace( static_cast<unsigned char>( aCh ) ) && aCh != '(' && aCh != ')';
+}
+
+
+std::string firstSexprHead( const std::string& aText )
+{
+    size_t pos = 0;
+
+    if( aText.size() >= 3 && static_cast<unsigned char>( aText[0] ) == 0xEF
+        && static_cast<unsigned char>( aText[1] ) == 0xBB
+        && static_cast<unsigned char>( aText[2] ) == 0xBF )
+    {
+        pos = 3;
+    }
+
+    while( pos < aText.size() && std::isspace( static_cast<unsigned char>( aText[pos] ) ) )
+        ++pos;
+
+    if( pos >= aText.size() || aText[pos] != '(' )
+        return "";
+
+    ++pos;
+    size_t start = pos;
+
+    while( pos < aText.size() && isTokenChar( aText[pos] ) )
+        ++pos;
+
+    return aText.substr( start, pos - start );
+}
+
+
+std::string findSexprVersion( const std::string& aText )
+{
+    size_t pos = 0;
+
+    while( ( pos = aText.find( "(version", pos ) ) != std::string::npos )
+    {
+        size_t afterHead = pos + 8;
+
+        if( afterHead >= aText.size()
+            || !std::isspace( static_cast<unsigned char>( aText[afterHead] ) ) )
+        {
+            pos = afterHead;
+            continue;
+        }
+
+        pos = afterHead;
+
+        while( pos < aText.size() && std::isspace( static_cast<unsigned char>( aText[pos] ) ) )
+            ++pos;
+
+        if( pos >= aText.size() )
+            return "";
+
+        bool quoted = aText[pos] == '"';
+
+        if( quoted )
+            ++pos;
+
+        size_t start = pos;
+
+        while( pos < aText.size() )
+        {
+            char ch = aText[pos];
+
+            if( quoted ? ch == '"' : !isTokenChar( ch ) )
+                break;
+
+            ++pos;
+        }
+
+        return aText.substr( start, pos - start );
+    }
+
+    return "";
+}
+
+
+std::string firstMatchingLineSuffix( const std::string& aText, const std::string& aPrefix )
+{
+    std::istringstream in( aText );
+    std::string line;
+
+    while( std::getline( in, line ) )
+    {
+        if( !line.empty() && line.back() == '\r' )
+            line.pop_back();
+
+        if( StartsWith( line, aPrefix ) )
+            return Trim( line.substr( aPrefix.size() ) );
+    }
+
+    return "";
+}
+
+
+std::string fastVersionForKind( KIND aKind, const std::string& aText )
+{
+    switch( aKind )
+    {
+    case KIND::PROJECT:
+        return "kicad-project-json";
+
+    case KIND::LEGACY_SCHEMATIC:
+    {
+        std::string value = firstMatchingLineSuffix( aText,
+                                                     "EESchema Schematic File Version" );
+        return value.empty() ? "legacy-sch" : "legacy-sch-v" + value;
+    }
+
+    case KIND::LEGACY_SYMBOL_LIBRARY:
+    {
+        std::string value = firstMatchingLineSuffix( aText, "EESchema-LIBRARY Version" );
+        return value.empty() ? "legacy-lib" : "legacy-lib-" + value;
+    }
+
+    case KIND::LEGACY_SYMBOL_DOCUMENTATION:
+        return "legacy-dcm-2.0";
+
+    case KIND::LEGACY_PROJECT:
+        return "legacy-pro";
+
+    default:
+        break;
+    }
+
+    std::string version = findSexprVersion( aText );
+    return version.empty() ? "unknown" : version;
+}
+
+
+FILE_REPORT detectVersionFast( const std::filesystem::path& aPath )
+{
+    std::string text = ReadTextFile( aPath );
+    KIND extensionKind = DetectKind( aPath, std::string() );
+    std::string head = IsLegacyKind( extensionKind ) || extensionKind == KIND::PROJECT
+            ? std::string() : firstSexprHead( text );
+    KIND kind = DetectKind( aPath, head );
+
+    FILE_REPORT report;
+    report.Path = aPath.string();
+    report.InputPath = aPath.string();
+    report.OutputPath = aPath.string();
+    report.Kind = KindName( kind );
+    report.SourceKind = report.Kind;
+    report.TargetKind = report.Kind;
+    report.SourceVersion = fastVersionForKind( kind, text );
+    return report;
+}
+
+
+bool hasDetectedVersion( const FILE_REPORT& aReport )
+{
+    return aReport.Kind != "unknown" && !aReport.SourceVersion.empty()
+           && aReport.SourceVersion != "unknown";
+}
+
+
+KIND kindFromReportName( const std::string& aKind )
+{
+    if( aKind == "symbol-library" ) return KIND::SYMBOL_LIBRARY;
+    if( aKind == "schematic" ) return KIND::SCHEMATIC;
+    if( aKind == "board" ) return KIND::BOARD;
+    if( aKind == "footprint" ) return KIND::FOOTPRINT;
+    if( aKind == "design-rules" ) return KIND::DESIGN_RULES;
+    if( aKind == "worksheet" ) return KIND::WORKSHEET;
+    if( aKind == "project" ) return KIND::PROJECT;
+    if( aKind == "legacy-schematic" ) return KIND::LEGACY_SCHEMATIC;
+    if( aKind == "legacy-symbol-library" ) return KIND::LEGACY_SYMBOL_LIBRARY;
+    if( aKind == "legacy-symbol-documentation" ) return KIND::LEGACY_SYMBOL_DOCUMENTATION;
+    if( aKind == "legacy-project" ) return KIND::LEGACY_PROJECT;
+    return KIND::UNKNOWN;
+}
+
+
+std::string displayReportVersion( const std::string& aKind, const std::string& aVersion,
+                                  const std::string& aFallback )
+{
+    if( aVersion.empty() )
+        return aFallback;
+
+    KIND kind = kindFromReportName( aKind );
+
+    if( kind == KIND::UNKNOWN )
+        return aVersion;
+
+    return DisplayVersionAlias( kind, aVersion );
+}
+
+
 std::string resolveDocumentTargetVersion( const DOCUMENT& aDocument, const std::string& aTarget )
 {
     std::string resolved = ResolveTargetVersion( aDocument.Kind, aTarget );
@@ -1514,6 +1706,9 @@ int CONVERTER::Run( int aArgc, char** aArgv )
         if( command == "inspect" )
             return runInspect( args );
 
+        if( command == "detect-versions" || command == "versions" )
+            return runDetectVersions( args );
+
         printUsage();
         return 2;
     }
@@ -1528,8 +1723,9 @@ int CONVERTER::Run( int aArgc, char** aArgv )
 void CONVERTER::printUsage() const
 {
     std::cerr << "usage:\n";
-    std::cerr << "  kicad-backport convert [--quiet] --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|number> <input> <output>\n";
+    std::cerr << "  kicad-backport convert [--quiet] --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> <input> <output>\n";
     std::cerr << "  kicad-backport inspect <input>\n";
+    std::cerr << "  kicad-backport detect-versions [--json] <input>\n";
     std::cerr << "  kicad-backport version\n";
 }
 
@@ -1883,6 +2079,24 @@ void printReportWarnings( const std::vector<FILE_REPORT>& aReports )
     {
         for( const std::string& warning : report.Warnings )
             std::cerr << "warning: " << report.Path << ": " << warning << '\n';
+    }
+}
+
+
+void printReportVersions( const std::vector<FILE_REPORT>& aReports )
+{
+    for( const FILE_REPORT& report : aReports )
+    {
+        std::string inputPath = report.InputPath.empty() ? report.Path : report.InputPath;
+        std::string sourceKind = report.SourceKind.empty() ? report.Kind : report.SourceKind;
+        std::string targetKind = report.TargetKind.empty() ? report.Kind : report.TargetKind;
+        std::string sourceVersion = displayReportVersion( sourceKind, report.SourceVersion,
+                                                          "unknown" );
+        std::string targetVersion = displayReportVersion( targetKind, report.TargetVersion,
+                                                          "unchanged" );
+
+        std::cout << "version: " << inputPath << " [" << sourceKind << " -> " << targetKind
+                  << "] " << sourceVersion << " -> " << targetVersion << '\n';
     }
 }
 
@@ -2428,6 +2642,9 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
                                               ReplaceExtension( input, ".kicad_prl" ) );
     }
 
+    if( !quiet )
+        printReportVersions( reports );
+
     if( !reportPath.empty() )
         writeReport( reportPath, reports );
 
@@ -2493,12 +2710,99 @@ std::vector<FILE_REPORT> CONVERTER::inspectPath( const std::filesystem::path& aP
 }
 
 
+std::vector<FILE_REPORT> CONVERTER::detectVersionsPath( const std::filesystem::path& aPath ) const
+{
+    std::vector<FILE_REPORT> reports;
+
+    if( !std::filesystem::is_directory( aPath ) && Lower( aPath.extension().string() ) != ".kicad_pro" )
+    {
+        if( !isKiCadDocumentPath( aPath ) )
+            return reports;
+
+        FILE_REPORT report = detectVersionFast( aPath );
+
+        if( hasDetectedVersion( report ) )
+            reports.push_back( std::move( report ) );
+
+        return reports;
+    }
+
+    std::filesystem::path root = std::filesystem::is_directory( aPath ) ? aPath : aPath.parent_path();
+
+    for( std::filesystem::recursive_directory_iterator it( root ), end; it != end; ++it )
+    {
+        const std::filesystem::directory_entry& entry = *it;
+
+        if( entry.is_directory() )
+        {
+            if( isExcludedProjectDirName( entry.path().filename().string() ) )
+                it.disable_recursion_pending();
+
+            continue;
+        }
+
+        if( !entry.is_regular_file() || !isKiCadDocumentPath( entry.path() ) )
+            continue;
+
+        FILE_REPORT report = detectVersionFast( entry.path() );
+
+        if( hasDetectedVersion( report ) )
+            reports.push_back( std::move( report ) );
+    }
+
+    std::sort( reports.begin(), reports.end(),
+               []( const FILE_REPORT& aLeft, const FILE_REPORT& aRight )
+               {
+                   return aLeft.Path < aRight.Path;
+               } );
+
+    return reports;
+}
+
+
 int CONVERTER::runInspect( const std::vector<std::string>& aArgs )
 {
     if( aArgs.size() != 1 )
         throw std::runtime_error( "inspect requires one input path" );
 
     std::cout << FormatReportsJson( inspectPath( aArgs[0] ) );
+    return 0;
+}
+
+
+int CONVERTER::runDetectVersions( const std::vector<std::string>& aArgs )
+{
+    bool json = false;
+    std::vector<std::string> positional;
+
+    for( const std::string& arg : aArgs )
+    {
+        if( arg == "--json" )
+            json = true;
+        else
+            positional.push_back( arg );
+    }
+
+    if( positional.size() != 1 )
+        throw std::runtime_error( "detect-versions requires one input path" );
+
+    std::vector<FILE_REPORT> reports = detectVersionsPath( positional[0] );
+
+    if( json )
+    {
+        std::cout << FormatReportsJson( reports );
+        return 0;
+    }
+
+    std::cout << "kind\tversion\tpath\n";
+
+    for( const FILE_REPORT& report : reports )
+    {
+        std::cout << report.Kind << '\t'
+                  << displayReportVersion( report.Kind, report.SourceVersion, "unknown" )
+                  << '\t' << report.Path << '\n';
+    }
+
     return 0;
 }
 

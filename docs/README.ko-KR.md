@@ -27,18 +27,27 @@ KiCad Backport 다운그레이드 CLI의 독립형 C++17 구현입니다. 도구
 ```text
 kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
+kicad-backport detect-versions [--json] <input>
 kicad-backport version
 ```
 
 변환기는 KiCad S-표현식 파일을 읽고 버전 기반 다운그레이드를 적용합니다.
 규칙을 작성하고 버전 접미사 출력 경로를 작성하며 전체 KiCad 프로젝트를 복사할 수 있습니다.
-복사본의 모든 KiCad 파일을 정규화하기 전에 디렉터리.
+복사본의 모든 KiCad 파일을 정규화하기 전에 디렉터리. 변환 중에는 각 KiCad
+파일에서 감지한 source file version과 해석된 target file version을 출력합니다.
+사람이 읽는 텍스트 출력은 원시 파일 형식 번호 대신 `9.0 (20241229)` 또는
+`10.99-dev (20260513)` 같은 KiCad alias를 우선 표시합니다. `detect-versions`는
+KiCad 관련 파일 종류와 version을 보고하는 데 필요한 만큼만 파일 텍스트를 읽는 빠른
+디렉터리 스캔입니다. 텍스트 출력은 같은 alias 표시를 사용하고, JSON report는 원시
+파일 형식 version을 유지합니다. 먼저 지원되는 KiCad 확장자로 필터링하고, version을
+식별할 수 없는 파일은 결과에서 생략합니다.
 
 예:
 
 ```powershell
 .\dist\kicad-backport-windows-amd64.exe convert --target-version 9.0 E:\tmp\project E:\tmp\project_V9
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
+.\dist\kicad-backport-windows-amd64.exe detect-versions E:\tmp\project
 ```
 
 지원되는 릴리스 별칭은 `4.0`, `5.0`, `5.1`, `6.0`, `7.0`, `8.0`,
@@ -79,6 +88,9 @@ KiCad 6/7/8 대상에 대한 가시성 파일이 생성됩니다.
 프로젝트 디렉터리 또는 `.kicad_pro`을(를) 변환할 때 도구는 복사만 합니다.
 편집 가능한 KiCad 입력 및 공통 로컬 3D 모델 파일. 생성된 제조
 출력, 기록/백업 폴더, Gerber, BOM 및 임시 파일은 건너뜁니다.
+KiCad 5/6 경계를 넘을 때는 필요한 경우 확장자를 자동으로 변경합니다.
+예: `.sch -> .kicad_sch`, `.lib -> .kicad_sym`, `.kicad_sch -> .sch`,
+`.kicad_sym -> .lib/.dcm`, `.kicad_pro -> .pro`.
 
 ## 프로젝트 레이아웃
 
@@ -87,7 +99,7 @@ KiCad 6/7/8 대상에 대한 가시성 파일이 생성됩니다.
 
 - `src/kicad_backport.cpp`: CLI 흐름, 프로젝트 복사/필터링, 파일 변환.
 - `src/kicad_backport_document.cpp`: KiCad 문서 종류 감지.
-- `src/kicad_backport_legacy.cpp`: 레거시 KiCad 문서 로드 스캐폴딩.
+- `src/kicad_backport_legacy.cpp`: legacy KiCad `.sch`, `.lib`, `.dcm`, `.pro` 읽기/쓰기 helper.
 - `src/kicad_backport_pathmap.cpp`: 대상 파일 확장자 매핑 도우미.
 - `src/kicad_backport_report.cpp`: JSON 보고서 형식입니다.
 - `src/kicad_backport_rules.cpp`: 버전 게이트 및 다운그레이드 규칙 순서.
@@ -127,6 +139,14 @@ kicad-backport-cplus/
 ./build.sh
 ```
 
+현재 Linux 또는 macOS host의 native binary만 필요하고 표준 cross-target dispatch가
+필요하지 않을 때는 native-only helper를 사용합니다.
+
+```sh
+./build-linux.sh
+./build-macos.sh
+```
+
 사전에 가장 작은 실용적인 툴체인을 자동으로 감지하고 설치하려면
 건물:
 
@@ -151,12 +171,18 @@ kicad-backport-cplus/
 이전 빌드를 제거하려면 `.\build.ps1 -Clean` 또는 `./build.sh --clean`을 사용하세요.
 재구축 전 출력.
 
+해당 native build tree와 output만 정리하려면 `./build-linux.sh --clean` 또는
+`./build-macos.sh --clean`을 사용합니다. 두 native helper 모두 `--config <name>`,
+`--generator <cmake-generator>`, `--jobs <n>`을 받습니다.
+
 C++ 크로스 컴파일에는 플랫폼 툴체인이 필요합니다. Windows에서는 `build.ps1`
 Visual Studio를 사용하여 `windows-amd64` 및 `windows-arm64`을 빌드하고
 WSL 도구 체인을 사용할 수 있는 경우 WSL을 통한 `linux-amd64`/`linux-arm64`입니다.
 Linux에서 `build.sh`은 기본 Linux를 빌드하고 다음과 같은 경우 `linux-arm64`을 빌드할 수 있습니다.
 `aarch64-linux-gnu-g++`이(가) 설치되었습니다. macOS에서 `build.sh`은 Darwin을 빌드합니다.
 amd64/arm64와 Apple SDK. Darwin 바이너리는 macOS에서 생성되어야 합니다.
+엄격한 native build에서는 `build-linux.sh`가 host Linux C++ toolchain을 사용하고,
+`build-macos.sh`는 `xcrun`을 통해 Apple Command Line Tools를 사용합니다.
 
 하위 집합을 작성하려면 다음을 수행하십시오.
 
@@ -200,6 +226,10 @@ cmake --build build --config Release
 
 구현은 의도적으로 종속성이 없으며 KiCad 스타일 C++를 따릅니다.
 형식 지정 규칙.
+
+## 감사의 말
+
+이 프로젝트 개발 중 도움을 준 Hubert에게 특별히 감사드립니다.
 
 ## 확인
 

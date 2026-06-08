@@ -27,18 +27,27 @@ KiCad バックポート ダウングレード CLI のスタンドアロン C++1
 ```text
 kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
+kicad-backport detect-versions [--json] <input>
 kicad-backport version
 ```
 
 コンバーターは KiCad S-expression ファイルを読み取り、バージョン主導のダウングレードを適用します
 ルールを作成し、バージョン接尾辞付きの出力パスを書き込み、KiCad プロジェクト全体をコピーできます
-コピー内のすべての KiCad ファイルを正規化する前に、ディレクトリを削除します。
+コピー内のすべての KiCad ファイルを正規化する前に、ディレクトリを削除します。変換中は、
+各 KiCad ファイルについて検出したソースファイル version と解決したターゲット version を出力します。
+人向けのテキスト出力では、生のファイル形式番号ではなく `9.0 (20241229)` や
+`10.99-dev (20260513)` のような KiCad alias を優先します。`detect-versions` は高速な
+ディレクトリスキャンで、KiCad 関連ファイルの種類と version を報告するのに必要な分だけ
+ファイルテキストを読みます。テキスト出力は同じ alias 表示を使い、JSON report は生の
+ファイル形式 version を保持します。まずサポート対象の KiCad 拡張子でフィルタし、version を
+識別できないファイルは出力しません。
 
 例:
 
 ```powershell
 .\dist\kicad-backport-windows-amd64.exe convert --target-version 9.0 E:\tmp\project E:\tmp\project_V9
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
+.\dist\kicad-backport-windows-amd64.exe detect-versions E:\tmp\project
 ```
 
 サポートされているリリース エイリアスは、`4.0`、`5.0`、`5.1`、`6.0`、`7.0`、
@@ -79,6 +88,9 @@ KiCad ファイル形式の生のバージョン番号も渡せます。
 プロジェクト ディレクトリまたは `.kicad_pro` を変換する場合、ツールはコピーのみを行います。
 編集可能な KiCad 入力と共通のローカル 3D モデル ファイル。生成されたものづくり
 出力、履歴/バックアップ フォルダー、ガーバー、BOM、および一時ファイルはスキップされます。
+KiCad 5/6 の境界をまたぐ場合、必要に応じて拡張子も自動的に変更します。
+例: `.sch -> .kicad_sch`、`.lib -> .kicad_sym`、`.kicad_sch -> .sch`、
+`.kicad_sym -> .lib/.dcm`、`.kicad_pro -> .pro`。
 
 ## プロジェクトのレイアウト
 
@@ -87,7 +99,7 @@ KiCad ファイル形式の生のバージョン番号も渡せます。
 
 - `src/kicad_backport.cpp`: CLI フロー、プロジェクトのコピー/フィルタリング、ファイル変換。
 - `src/kicad_backport_document.cpp`: KiCad ドキュメントの種類の検出。
-- `src/kicad_backport_legacy.cpp`: 従来の KiCad ドキュメント読み込みスキャフォールディング。
+- `src/kicad_backport_legacy.cpp`: legacy KiCad `.sch`、`.lib`、`.dcm`、`.pro` の読み書きヘルパー。
 - `src/kicad_backport_pathmap.cpp`: ターゲット ファイル拡張子マッピング ヘルパー。
 - `src/kicad_backport_report.cpp`: JSON レポートの形式。
 - `src/kicad_backport_rules.cpp`: バージョン ゲートとダウングレード ルールの順序。
@@ -127,6 +139,14 @@ kicad-backport-cplus/
 ./build.sh
 ```
 
+現在の Linux または macOS ホスト用のネイティブバイナリだけが必要で、標準の
+クロスターゲット分配が不要な場合は、native-only helper を使います。
+
+```sh
+./build-linux.sh
+./build-macos.sh
+```
+
 事前に最小の実用的なツールチェーンを自動的に検出してインストールするには
 建物：
 
@@ -151,12 +171,18 @@ kicad-backport-cplus/
 `.\build.ps1 -Clean` または `./build.sh --clean` を使用して以前のビルドを削除します
 リビルド前の出力。
 
+対応する native build tree と出力だけを消すには、`./build-linux.sh --clean` または
+`./build-macos.sh --clean` を使います。どちらの native helper も `--config <name>`、
+`--generator <cmake-generator>`、`--jobs <n>` を受け付けます。
+
 C++ クロスコンパイルにはプラットフォーム ツールチェーンが必要です。 Windows の場合、`build.ps1`
 Visual Studio で `windows-amd64` と `windows-arm64` をビルドし、ビルドします
 WSL ツールチェーンが利用可能な場合は、WSL 経由の `linux-amd64`/`linux-arm64`。
 Linux では、`build.sh` はネイティブ Linux をビルドし、次の場合に `linux-arm64` をビルドできます。
 `aarch64-linux-gnu-g++` がインストールされています。 macOS では、`build.sh` が Darwin をビルドします
 Apple SDK を使用した amd64/arm64。 Darwin バイナリは macOS 上で生成する必要があります。
+厳密な native build では、`build-linux.sh` はホスト Linux C++ toolchain を使い、
+`build-macos.sh` は `xcrun` 経由で Apple Command Line Tools を使います。
 
 サブセットを構築するには:
 
@@ -200,6 +226,10 @@ cmake --build build --config Release
 
 実装は意図的に依存関係がなく、KiCad スタイルの C++ に従っています。
 書式設定規則。
+
+## 謝辞
+
+このプロジェクトの開発中に支援してくれた Hubert に特別な感謝を表します。
 
 ## 検証
 

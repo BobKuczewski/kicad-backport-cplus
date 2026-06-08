@@ -662,7 +662,7 @@ Réécritures de compatibilité :
 | `< 20230924` | Convertissez les booléens `pcbplotparams` `yes/no` en `true/false` ; convertir le remplissage de forme `no` en `none` |
 | `< 20230730` | Supprimer la forme graphique `net` connectivité |
 | `< 20240108` | Convertir les listes booléennes de polices grasses/italiques en atomes hérités |
-| `< 20230620` | Convertissez les propriétés d'empreinte `Reference` et `Value` en `fp_text` ; convertir `Description` en `ki_description` ; mapper `sheetname`/`sheetfile` aux propriétés |
+| `< 20230620` | Convertissez les propriétés d'empreinte `Reference` et `Value` en `fp_text reference` / `fp_text value` ; c'est une exigence de compatibilité des références PCB. Convertir `Description` en `ki_description` ; mapper `sheetname`/`sheetfile` aux propriétés |
 | `< 20231231` | Renommez les champs `uuid` de portée en `tstamp` ; renommer le groupe/généré `uuid` en `id` |
 | `< 20250324` | Supprimez les champs du cavalier d'empreinte : `duplicate_pad_numbers_are_jumpers` et `jumper_pad_groups` |
 | `<= 20221018` | Supprimez les attributs d'empreinte `dnp`, `net_tie_pad_groups`, `units` et `allow_missing_courtyard` ; supprimer le pad/via `remove_unused_layers` ; convertir les dimensions en graphiques visibles ; supprimer `locked` incompatible avec l'héritage ; rétrograder gratuitement via les champs ; convertir les blocs graphiques `stroke` du PCB en champs `width` hérités |

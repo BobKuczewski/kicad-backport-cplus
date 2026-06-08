@@ -66,7 +66,7 @@ struct PROJECT_COPY_ENTRY
 class CONVERTER
 {
 public:
-    static constexpr const char* VERSION = "0.4.0";
+    static constexpr const char* VERSION = "0.4.1";
 
     int Run( int aArgc, char** aArgv );
 
@@ -74,6 +74,7 @@ private:
     // CLI subcommands.
     int runConvert( const std::vector<std::string>& aArgs );
     int runInspect( const std::vector<std::string>& aArgs );
+    int runDetectVersions( const std::vector<std::string>& aArgs );
     void printUsage() const;
 
     // Document IO and conversion.
@@ -83,6 +84,7 @@ private:
                                const std::string& aTarget,
                                bool aPrintWarnings = true );
     std::vector<FILE_REPORT> inspectPath( const std::filesystem::path& aPath ) const;
+    std::vector<FILE_REPORT> detectVersionsPath( const std::filesystem::path& aPath ) const;
 
     void ensureVersion( DOCUMENT& aDocument, const std::string& aVersion ) const;
 
