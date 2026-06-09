@@ -1,10 +1,11 @@
-#pragma once
+#ifndef KICAD_BACKPORT_SEXPR_H
+#define KICAD_BACKPORT_SEXPR_H
+
+#include "kicad_backport/compat.h"
 
 #include <cstddef>
 #include <memory>
-#include <memory_resource>
 #include <string>
-#include <string_view>
 #include <vector>
 
 
@@ -46,3 +47,5 @@ std::string Format( const NODE* aRoot );
 std::string Format( const NODE* aRoot, size_t aReserveBytes );
 
 } // namespace SEXPR
+
+#endif // KICAD_BACKPORT_SEXPR_H

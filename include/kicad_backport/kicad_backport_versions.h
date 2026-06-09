@@ -1,4 +1,5 @@
-#pragma once
+#ifndef KICAD_BACKPORT_KICAD_BACKPORT_VERSIONS_H
+#define KICAD_BACKPORT_KICAD_BACKPORT_VERSIONS_H
 
 #include "kicad_backport/kicad_backport.h"
 
@@ -21,3 +22,5 @@ std::string DisplayVersionAlias( KIND aKind, const std::string& aVersion );
 int TargetMajorVersion( const std::string& aTarget );
 
 } // namespace KICAD_BACKPORT
+
+#endif // KICAD_BACKPORT_KICAD_BACKPORT_VERSIONS_H

@@ -1,6 +1,8 @@
-#pragma once
+#ifndef KICAD_BACKPORT_KICAD_BACKPORT_UTIL_H
+#define KICAD_BACKPORT_KICAD_BACKPORT_UTIL_H
 
-#include <filesystem>
+#include "kicad_backport/compat.h"
+
 #include <string>
 
 
@@ -22,3 +24,5 @@ void WriteTextFile( const std::filesystem::path& aPath, const std::string& aText
 std::string ReplaceExtension( const std::filesystem::path& aPath, const std::string& aExt );
 
 } // namespace KICAD_BACKPORT
+
+#endif // KICAD_BACKPORT_KICAD_BACKPORT_UTIL_H

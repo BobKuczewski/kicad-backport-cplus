@@ -123,105 +123,122 @@ kicad-backport-cplus/
   include/kicad_backport/   public headers
   src/                      implementation files
   src/internal/             private headers
-  scripts/                  cross-build environment setup
   build/                    generated build trees
   dist/                     packaged command-line binaries
 ```
 
 ## Build
 
-Build on the current platform:
+There are now only two build entrypoints:
+
+- `build.ps1` for Windows native builds and temporary Windows-hosted Linux cross builds through WSL.
+- `build.sh` for Linux/macOS native builds only.
+
+Native build from a fresh checkout:
+
+```sh
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
+./build.sh --setup
+./build.sh --config Release
+```
+
+On Windows:
+
+```powershell
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
+.\build.ps1 -SetupMissingTools
+.\build.ps1 -Targets windows-amd64
+```
+
+Windows native build:
 
 ```powershell
 .\build.ps1
 ```
 
-```sh
-./build.sh
+Build a Windows subset:
+
+```powershell
+.\build.ps1 -Targets windows-amd64
 ```
 
-Use the native-only helpers when you only want the current Linux or macOS host
-binary and do not want the standard cross-target dispatch:
+Build Linux targets from Windows through WSL:
 
-```sh
-./build-linux.sh
-./build-macos.sh
+```powershell
+.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
 ```
 
-To automatically detect and install the smallest practical toolchain before
-building:
+When tools are missing, let the Windows entrypoint install the practical WSL
+toolchain packages where possible:
 
 ```powershell
 .\build.ps1 -SetupMissingTools
 ```
 
+Linux/macOS native build:
+
 ```sh
-./build.sh --setup
+./build.sh
 ```
 
-Both scripts try the standard release targets and copy successful outputs to
-`dist/` using plugin-compatible names:
+The POSIX entrypoint is self-contained: it installs/checks native tools with
+`--setup`, uses CMake when it is available and new enough, and falls back to
+direct `g++`/`clang++` compilation when CMake is missing or too old. It only
+builds the current host target; cross-compilation is temporarily kept in
+`build.ps1` on Windows.
+
+Useful native options:
+
+```sh
+./build.sh --setup
+./build.sh --clean
+./build.sh --config Release
+./build.sh --compiler g++-8
+./build.sh --direct
+./build.sh --static-runtime off
+```
+
+Outputs are copied to `dist/` using plugin-compatible names:
 
 - `kicad-backport-windows-amd64.exe`
 - `kicad-backport-windows-arm64.exe`
 - `kicad-backport-linux-amd64`
 - `kicad-backport-linux-arm64`
+- `kicad-backport-linux-armhf`
 - `kicad-backport-darwin-amd64`
 - `kicad-backport-darwin-arm64`
 
-Use `.\build.ps1 -Clean` or `./build.sh --clean` to remove previous build
-outputs before rebuilding.
+`--static-runtime auto` is the default on Linux for direct compiler builds. It
+first tries static `libstdc++` / `libgcc`, retries with `-lstdc++fs` for older
+GCC, then falls back to the system dynamic runtime if static runtime libraries
+are unavailable. CMake builds link `stdc++fs` automatically with GNU C++ before
+9 and link pthreads through CMake's `Threads` package.
 
-Use `./build-linux.sh --clean` or `./build-macos.sh --clean` to clean only the
-corresponding native build tree and output. Both native helpers accept
-`--config <name>`, `--generator <cmake-generator>`, and `--jobs <n>`.
-
-C++ cross-compilation requires platform toolchains. On Windows, `build.ps1`
-builds `windows-amd64` and `windows-arm64` with Visual Studio, and builds
-`linux-amd64`/`linux-arm64` through WSL when the WSL toolchain is available.
-On Linux, `build.sh` builds native Linux and can build `linux-arm64` when
-`aarch64-linux-gnu-g++` is installed. On macOS, `build.sh` builds Darwin
-amd64/arm64 with the Apple SDK. Darwin binaries must be generated on macOS.
-For strictly native builds, `build-linux.sh` uses the host Linux C++ toolchain,
-and `build-macos.sh` uses Apple Command Line Tools through `xcrun`.
-
-To build a subset:
-
-```powershell
-.\build.ps1 -Targets windows-amd64,windows-arm64
-```
-
-```sh
-TARGETS="linux-amd64 linux-arm64" ./build.sh
-```
-
-Cross-build environment setup:
-
-```powershell
-.\scripts\setup-cross.ps1
-.\scripts\setup-cross.ps1 -CheckOnly
-```
-
-```sh
-./scripts/setup-cross.sh
-./scripts/setup-cross.sh --check-only
-```
-
-The setup scripts automatically install the smallest practical build toolchain
-for the host platform. Use `-CheckOnly` or `--check-only` to only report missing
-tools without installing anything.
-
-On Windows, the setup script installs or prepares CMake, Visual Studio C++
-Build Tools, WSL, Ubuntu, and the minimal WSL packages needed for Linux
-amd64/arm64 builds. On Linux, it installs CMake, a native C++ compiler, Ninja,
-and the aarch64 Linux cross compiler where supported by the host package
-manager. On macOS, it triggers Apple Command Line Tools and installs CMake/Ninja
-through Homebrew when available.
+The current source requires C++17-level language/library support because it uses
+`filesystem`, `pmr`, and `string_view`. The compatibility layer accepts standard
+or experimental library implementations where available, and direct builds fall
+back from `-std=c++17` to `-std=c++1z` for older compilers.
 
 Manual CMake build:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+Manual no-CMake GCC build:
+
+```sh
+./build.sh --config Release --target native --direct
+```
+
+When using manual CMake on an old Linux system that does not provide static
+runtime libraries, disable static runtime linking:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKICAD_BACKPORT_STATIC_RUNTIME=OFF
 cmake --build build --config Release
 ```
 

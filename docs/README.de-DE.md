@@ -123,101 +123,51 @@ kicad-backport-cplus/
   include/kicad_backport/   public headers
   src/                      implementation files
   src/internal/             private headers
-  scripts/                  cross-build environment setup
   build/                    generated build trees
   dist/                     packaged command-line binaries
 ```
 
 ## Bauen
 
-Bauen Sie auf der aktuellen Plattform auf:
+Es gibt nur zwei Build-Einstiegspunkte:
 
-```powershell
-.\build.ps1
-```
+- `build.ps1` für native Windows-Builds und temporäre Linux-Cross-Builds von Windows aus über WSL.
+- `build.sh` nur für native Linux-/macOS-Builds.
 
-```sh
-./build.sh
-```
-
-Verwenden Sie die nativen Helfer, wenn nur das aktuelle Linux- oder macOS-Host-Binary
-gebaut werden soll und keine Standard-Cross-Target-Verteilung noetig ist:
+Nativer Build aus einem frischen Checkout:
 
 ```sh
-./build-linux.sh
-./build-macos.sh
-```
-
-Um die kleinste praktische Toolchain automatisch zu erkennen und zu installieren
-Gebäude:
-
-```powershell
-.\build.ps1 -SetupMissingTools
-```
-
-```sh
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
 ./build.sh --setup
+./build.sh --config Release
 ```
 
-Beide Skripte probieren die Standard-Release-Ziele aus und kopieren erfolgreiche Ausgaben dorthin
-`dist/` mit Plugin-kompatiblen Namen:
-
-- `kicad-backport-windows-amd64.exe`
-- `kicad-backport-windows-arm64.exe`
-- `kicad-backport-linux-amd64`
-- `kicad-backport-linux-arm64`
-- `kicad-backport-darwin-amd64`
-- `kicad-backport-darwin-arm64`
-
-Verwenden Sie `.\build.ps1 -Clean` oder `./build.sh --clean`, um den vorherigen Build zu entfernen
-Ausgaben vor dem Neuaufbau.
-
-Verwenden Sie `./build-linux.sh --clean` oder `./build-macos.sh --clean`, um nur
-den jeweiligen nativen Build-Baum und die Ausgabe zu entfernen. Beide nativen
-Helfer akzeptieren `--config <name>`, `--generator <cmake-generator>` und
-`--jobs <n>`.
-
-Für die C++-Cross-Kompilierung sind Plattform-Toolchains erforderlich. Unter Windows: `build.ps1`
-erstellt `windows-amd64` und `windows-arm64` mit Visual Studio und erstellt
-`linux-amd64`/`linux-arm64` über WSL, wenn die WSL-Toolchain verfügbar ist.
-Unter Linux erstellt `build.sh` natives Linux und kann `linux-arm64` erstellen, wenn
-`aarch64-linux-gnu-g++` ist installiert. Unter macOS erstellt `build.sh` Darwin
-amd64/arm64 mit dem Apple SDK. Darwin-Binärdateien müssen unter macOS generiert werden.
-Fuer strikt native Builds nutzt `build-linux.sh` die Linux-C++-Toolchain des Hosts
-und `build-macos.sh` nutzt Apple Command Line Tools ueber `xcrun`.
-
-So erstellen Sie eine Teilmenge:
+Unter Windows:
 
 ```powershell
-.\build.ps1 -Targets windows-amd64,windows-arm64
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
+.\build.ps1 -SetupMissingTools
+.\build.ps1 -Targets windows-amd64
 ```
 
-```sh
-TARGETS="linux-amd64 linux-arm64" ./build.sh
-```
-
-Einrichtung einer Cross-Build-Umgebung:
+Linux-Ziele von Windows aus über WSL:
 
 ```powershell
-.\scripts\setup-cross.ps1
-.\scripts\setup-cross.ps1 -CheckOnly
+.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
 ```
+
+Nützliche native Optionen:
 
 ```sh
-./scripts/setup-cross.sh
-./scripts/setup-cross.sh --check-only
+./build.sh --clean
+./build.sh --compiler g++-8
+./build.sh --direct
+./build.sh --static-runtime off
 ```
 
-Die Setup-Skripte installieren automatisch die kleinste praktische Build-Toolchain
-für die Host-Plattform. Verwenden Sie `-CheckOnly` oder `--check-only`, um nur fehlende Elemente zu melden
-Tools, ohne etwas zu installieren.
-
-Unter Windows installiert oder bereitet das Setup-Skript CMake und Visual Studio C++ vor
-Build Tools, WSL, Ubuntu und die minimalen WSL-Pakete, die für Linux benötigt werden
-amd64/arm64-Builds. Unter Linux installiert es CMake, einen nativen C++-Compiler, Ninja,
-und der aarch64-Linux-Cross-Compiler, der vom Host-Paket unterstützt wird
-Manager. Unter macOS löst es die Apple Command Line Tools aus und installiert CMake/Ninja
-über Homebrew, sofern verfügbar.
+Die Ausgaben werden nach `dist/` kopiert. Der aktuelle Quellcode benötigt C++17-Unterstützung für `filesystem`, `pmr` und `string_view`; die Kompatibilitätsschicht akzeptiert standard- oder experimental-Implementierungen, und direkte Builds fallen von `-std=c++17` auf `-std=c++1z` zurück.
 
 Manueller CMake-Build:
 
@@ -226,9 +176,11 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-Die Implementierung ist bewusst abhängigkeitsfrei und folgt C++ im KiCad-Stil
-Formatierungskonventionen.
+Manueller Build ohne CMake:
 
+```sh
+./build.sh --config Release --target native --direct
+```
 ## Danksagungen
 
 Besonderer Dank gilt Hubert fuer die Hilfe waehrend der Entwicklung dieses

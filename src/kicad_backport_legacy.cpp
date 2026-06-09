@@ -1731,41 +1731,6 @@ void appendAliasUnitSubSymbols( SEXPR::NODE* aAliasSymbol, const std::string& aA
 }
 
 
-void appendEmbeddedLibSymbol( SEXPR::NODE* aLibSymbols, const std::string& aLibId,
-                              const LEGACY_SYMBOL_DEF* aDef )
-{
-    if( !aLibSymbols )
-        return;
-
-    std::string symbolName = symbolNameWithoutLibraryPrefix( aLibId );
-
-    std::unique_ptr<SEXPR::NODE> symbol = listNode( "symbol" );
-    appendAtom( symbol.get(), aLibId, true );
-    appendPinVisibilityNodes( symbol.get(), aDef ? aDef->ShowPinNumbers : true,
-                              aDef ? aDef->ShowPinNames : true );
-    appendChild( symbol.get(), atomList( "in_bom", "yes" ) );
-    appendChild( symbol.get(), atomList( "on_board", "yes" ) );
-
-    std::string reference = aDef && !aDef->Reference.empty()
-            ? legacyLibraryReferencePrefix( aDef->Reference, symbolName )
-            : legacyLibraryReferencePrefix( "", symbolName );
-    appendChild( symbol.get(), propertyNode( "Reference", reference, "0", false, false ) );
-    appendChild( symbol.get(), propertyNode( "Value", valueFromLibId( aLibId ), "1", false, false ) );
-    appendChild( symbol.get(), propertyNode( "Footprint", "", "2", true, false ) );
-    appendChild( symbol.get(), propertyNode( "Datasheet", "", "3", true, false ) );
-
-    if( aDef )
-    {
-        if( legacySymbolHasMultipleUnits( *aDef ) )
-            appendLegacyUnitSubSymbols( symbol.get(), symbolName, *aDef );
-        else
-            appendLegacySymbolItemsForUnit( symbol.get(), *aDef, 1, true );
-    }
-
-    appendChild( aLibSymbols, std::move( symbol ) );
-}
-
-
 void appendPinVisibilityNodes( SEXPR::NODE* aSymbol, bool aShowPinNumbers, bool aShowPinNames )
 {
     if( !aSymbol )

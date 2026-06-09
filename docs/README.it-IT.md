@@ -122,111 +122,64 @@ kicad-backport-cplus/
   include/kicad_backport/   public headers
   src/                      implementation files
   src/internal/             private headers
-  scripts/                  cross-build environment setup
   build/                    generated build trees
   dist/                     packaged command-line binaries
 ```
 
 ## Costruire
 
-Costruisci sulla piattaforma attuale:
+Ci sono solo due punti di ingresso per la compilazione:
 
-```powershell
-.\build.ps1
-```
+- `build.ps1` per build native Windows e build cross Linux temporanee da Windows tramite WSL.
+- `build.sh` solo per build native Linux/macOS.
 
-```sh
-./build.sh
-```
-
-Usa gli helper solo nativi quando vuoi soltanto il binario dell'host Linux o macOS
-corrente e non la distribuzione standard tra target:
+Build nativa da un checkout pulito:
 
 ```sh
-./build-linux.sh
-./build-macos.sh
-```
-
-Per rilevare e installare automaticamente la più piccola toolchain pratica prima
-edificio:
-
-```powershell
-.\build.ps1 -SetupMissingTools
-```
-
-```sh
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
 ./build.sh --setup
+./build.sh --config Release
 ```
 
-Entrambi gli script provano le destinazioni di rilascio standard e vi copiano gli output riusciti
-`dist/` utilizzando nomi compatibili con il plugin:
-
-- `kicad-backport-windows-amd64.exe`
-- `kicad-backport-windows-arm64.exe`
-- `kicad-backport-linux-amd64`
-- `kicad-backport-linux-arm64`
-- `kicad-backport-darwin-amd64`
-- `kicad-backport-darwin-arm64`
-
-Utilizza `.\build.ps1 -Clean` o `./build.sh --clean` per rimuovere la build precedente
-output prima della ricostruzione.
-
-Usa `./build-linux.sh --clean` o `./build-macos.sh --clean` per pulire solo il
-relativo albero di build nativo e l'output. Entrambi gli helper nativi accettano
-`--config <name>`, `--generator <cmake-generator>` e `--jobs <n>`.
-
-La compilazione incrociata C++ richiede toolchain della piattaforma. Su Windows, `build.ps1`
-costruisce `windows-amd64` e `windows-arm64` con Visual Studio e costruisce
-`linux-amd64`/`linux-arm64` tramite WSL quando la toolchain WSL è disponibile.
-Su Linux, `build.sh` crea Linux nativo e può creare `linux-arm64` quando
-`aarch64-linux-gnu-g++` è installato. Su macOS, `build.sh` crea Darwin
-amd64/arm64 con l'SDK di Apple. I file binari di Darwin devono essere generati su macOS.
-Per build strettamente native, `build-linux.sh` usa la toolchain C++ Linux dell'host,
-e `build-macos.sh` usa Apple Command Line Tools tramite `xcrun`.
-
-Per creare un sottoinsieme:
+Su Windows:
 
 ```powershell
-.\build.ps1 -Targets windows-amd64,windows-arm64
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
+.\build.ps1 -SetupMissingTools
+.\build.ps1 -Targets windows-amd64
 ```
 
-```sh
-TARGETS="linux-amd64 linux-arm64" ./build.sh
-```
-
-Configurazione dell'ambiente tra build:
+Target Linux da Windows tramite WSL:
 
 ```powershell
-.\scripts\setup-cross.ps1
-.\scripts\setup-cross.ps1 -CheckOnly
+.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
 ```
+
+Opzioni native utili:
 
 ```sh
-./scripts/setup-cross.sh
-./scripts/setup-cross.sh --check-only
+./build.sh --clean
+./build.sh --compiler g++-8
+./build.sh --direct
+./build.sh --static-runtime off
 ```
 
-Gli script di installazione installano automaticamente la più piccola toolchain di compilazione pratica
-per la piattaforma ospitante. Utilizza `-CheckOnly` o `--check-only` per segnalare solo quelli mancanti
-strumenti senza installare nulla.
+Gli output vengono copiati in `dist/`. Il sorgente attuale richiede supporto C++17 per `filesystem`, `pmr` e `string_view`; il livello di compatibilità accetta implementazioni standard o experimental e le build dirette passano da `-std=c++17` a `-std=c++1z` se necessario.
 
-In Windows, lo script di installazione installa o prepara CMake, Visual Studio C++
-Strumenti di creazione, WSL, Ubuntu e i pacchetti WSL minimi necessari per Linux
-build amd64/arm64. Su Linux installa CMake, un compilatore C++ nativo, Ninja,
-e il compilatore incrociato Linux aarch64 era supportato dal pacchetto host
-manager. Su macOS, attiva gli strumenti da riga di comando di Apple e installa CMake/Ninja
-tramite Homebrew quando disponibile.
-
-Compilazione manuale di CMake:
+Build CMake manuale:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-L'implementazione è intenzionalmente priva di dipendenze e segue il C++ in stile KiCad
-convenzioni di formattazione.
+Build manuale senza CMake:
 
+```sh
+./build.sh --config Release --target native --direct
+```
 ## Ringraziamenti
 
 Un ringraziamento speciale a Hubert per l'aiuto fornito durante lo sviluppo di questo

@@ -122,100 +122,51 @@ kicad-backport-cplus/
   include/kicad_backport/   public headers
   src/                      implementation files
   src/internal/             private headers
-  scripts/                  cross-build environment setup
   build/                    generated build trees
   dist/                     packaged command-line binaries
 ```
 
-## 建てる
+## ビルド
 
-現在のプラットフォーム上に構築します。
+ビルド入口は 2 つだけです。
 
-```powershell
-.\build.ps1
-```
+- `build.ps1`: Windows ネイティブビルドと、暫定的に Windows から WSL 経由で行う Linux クロスビルド。
+- `build.sh`: Linux/macOS ネイティブビルド専用。
 
-```sh
-./build.sh
-```
-
-現在の Linux または macOS ホスト用のネイティブバイナリだけが必要で、標準の
-クロスターゲット分配が不要な場合は、native-only helper を使います。
+新しい checkout からのネイティブビルド:
 
 ```sh
-./build-linux.sh
-./build-macos.sh
-```
-
-事前に最小の実用的なツールチェーンを自動的に検出してインストールするには
-建物：
-
-```powershell
-.\build.ps1 -SetupMissingTools
-```
-
-```sh
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
 ./build.sh --setup
+./build.sh --config Release
 ```
 
-どちらのスクリプトも標準のリリース ターゲットを試行し、成功した出力を次の場所にコピーします。
-`dist/` プラグイン互換の名前を使用:
-
-- `kicad-backport-windows-amd64.exe`
-- `kicad-backport-windows-arm64.exe`
-- `kicad-backport-linux-amd64`
-- `kicad-backport-linux-arm64`
-- `kicad-backport-darwin-amd64`
-- `kicad-backport-darwin-arm64`
-
-`.\build.ps1 -Clean` または `./build.sh --clean` を使用して以前のビルドを削除します
-リビルド前の出力。
-
-対応する native build tree と出力だけを消すには、`./build-linux.sh --clean` または
-`./build-macos.sh --clean` を使います。どちらの native helper も `--config <name>`、
-`--generator <cmake-generator>`、`--jobs <n>` を受け付けます。
-
-C++ クロスコンパイルにはプラットフォーム ツールチェーンが必要です。 Windows の場合、`build.ps1`
-Visual Studio で `windows-amd64` と `windows-arm64` をビルドし、ビルドします
-WSL ツールチェーンが利用可能な場合は、WSL 経由の `linux-amd64`/`linux-arm64`。
-Linux では、`build.sh` はネイティブ Linux をビルドし、次の場合に `linux-arm64` をビルドできます。
-`aarch64-linux-gnu-g++` がインストールされています。 macOS では、`build.sh` が Darwin をビルドします
-Apple SDK を使用した amd64/arm64。 Darwin バイナリは macOS 上で生成する必要があります。
-厳密な native build では、`build-linux.sh` はホスト Linux C++ toolchain を使い、
-`build-macos.sh` は `xcrun` 経由で Apple Command Line Tools を使います。
-
-サブセットを構築するには:
+Windows の場合:
 
 ```powershell
-.\build.ps1 -Targets windows-amd64,windows-arm64
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
+.\build.ps1 -SetupMissingTools
+.\build.ps1 -Targets windows-amd64
 ```
 
-```sh
-TARGETS="linux-amd64 linux-arm64" ./build.sh
-```
-
-クロスビルド環境のセットアップ:
+Windows から WSL 経由で Linux ターゲットをビルド:
 
 ```powershell
-.\scripts\setup-cross.ps1
-.\scripts\setup-cross.ps1 -CheckOnly
+.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
 ```
+
+便利なネイティブオプション:
 
 ```sh
-./scripts/setup-cross.sh
-./scripts/setup-cross.sh --check-only
+./build.sh --clean
+./build.sh --compiler g++-8
+./build.sh --direct
+./build.sh --static-runtime off
 ```
 
-セットアップ スクリプトは、実用的な最小のビルド ツールチェーンを自動的にインストールします。
-ホストプラットフォーム用。欠落を報告する場合のみ、`-CheckOnly` または `--check-only` を使用してください
-何もインストールせずにツールを使用できます。
-
-Windows では、セットアップ スクリプトにより CMake、Visual Studio C++ がインストールまたは準備されます。
-ビルド ツール、WSL、Ubuntu、および Linux に必要な最小限の WSL パッケージ
-amd64/arm64 ビルド。 Linux では、CMake、ネイティブ C++ コンパイラー、Ninja、
-ホスト パッケージでサポートされる aarch64 Linux クロス コンパイラー
-マネージャー。 macOS では、Apple コマンド ライン ツールをトリガーし、CMake/Ninja をインストールします。
-利用可能な場合は Homebrew を通じて。
+出力は `dist/` にコピーされます。現在のソースは `filesystem`、`pmr`、`string_view` のため C++17 対応が必要です。互換レイヤーは standard または experimental 実装を受け入れ、直接ビルドでは `-std=c++17` から `-std=c++1z` にフォールバックします。
 
 手動 CMake ビルド:
 
@@ -224,9 +175,11 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-実装は意図的に依存関係がなく、KiCad スタイルの C++ に従っています。
-書式設定規則。
+CMake なしの手動ビルド:
 
+```sh
+./build.sh --config Release --target native --direct
+```
 ## 謝辞
 
 このプロジェクトの開発中に支援してくれた Hubert に特別な感謝を表します。

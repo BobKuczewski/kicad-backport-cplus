@@ -1,9 +1,10 @@
-#pragma once
+#ifndef KICAD_BACKPORT_KICAD_BACKPORT_H
+#define KICAD_BACKPORT_KICAD_BACKPORT_H
 
+#include "kicad_backport/compat.h"
 #include "kicad_backport/sexpr.h"
 
 #include <cstddef>
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -114,3 +115,5 @@ std::string KindName( KIND aKind );
 KIND DetectKind( const std::filesystem::path& aPath, const std::string& aTopLevel );
 
 } // namespace KICAD_BACKPORT
+
+#endif // KICAD_BACKPORT_KICAD_BACKPORT_H

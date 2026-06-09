@@ -1,4 +1,5 @@
-#pragma once
+#ifndef KICAD_BACKPORT_KICAD_BACKPORT_REPORT_H
+#define KICAD_BACKPORT_KICAD_BACKPORT_REPORT_H
 
 #include "kicad_backport/kicad_backport.h"
 
@@ -13,3 +14,5 @@ namespace KICAD_BACKPORT
 std::string FormatReportsJson( const std::vector<FILE_REPORT>& aReports );
 
 } // namespace KICAD_BACKPORT
+
+#endif // KICAD_BACKPORT_KICAD_BACKPORT_REPORT_H

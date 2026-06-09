@@ -1,8 +1,8 @@
-#pragma once
+#ifndef KICAD_BACKPORT_KICAD_BACKPORT_LEGACY_H
+#define KICAD_BACKPORT_KICAD_BACKPORT_LEGACY_H
 
 #include "kicad_backport/kicad_backport.h"
 
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -27,3 +27,5 @@ std::string LegacyDocumentationSidecarText( const DOCUMENT& aDocument, int aTarg
                                             std::vector<std::string>* aWarnings );
 
 } // namespace KICAD_BACKPORT
+
+#endif // KICAD_BACKPORT_KICAD_BACKPORT_LEGACY_H

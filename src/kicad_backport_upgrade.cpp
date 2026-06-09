@@ -8,7 +8,6 @@
 #include <iomanip>
 #include <set>
 #include <sstream>
-#include <string_view>
 
 
 namespace KICAD_BACKPORT
@@ -25,20 +24,6 @@ bool containsString( const std::set<std::string>& aSet, std::string_view aValue 
     }
 
     return false;
-}
-
-
-bool parseKiCadBool( const std::string& aValue, bool aDefault )
-{
-    std::string value = Lower( aValue );
-
-    if( value == "yes" || value == "true" || value == "1" )
-        return true;
-
-    if( value == "no" || value == "false" || value == "0" )
-        return false;
-
-    return aDefault;
 }
 
 

@@ -3,13 +3,10 @@ build-*/
 out/
 dist/
 plans/
-scripts/
-!scripts\setup-cross.ps1
-!scripts\setup-cross.sh
+scripts/*
 .codegraph/
 *.user
 *.suo
 *.vcxproj*
 *.sln
 *.slnx
-

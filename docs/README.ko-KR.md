@@ -122,100 +122,51 @@ kicad-backport-cplus/
   include/kicad_backport/   public headers
   src/                      implementation files
   src/internal/             private headers
-  scripts/                  cross-build environment setup
   build/                    generated build trees
   dist/                     packaged command-line binaries
 ```
 
-## 짓다
+## 빌드
 
-현재 플랫폼에서 빌드:
+빌드 진입점은 두 개만 유지합니다.
 
-```powershell
-.\build.ps1
-```
+- `build.ps1`: Windows 네이티브 빌드와, 임시로 Windows에서 WSL을 통한 Linux 크로스 빌드.
+- `build.sh`: Linux/macOS 네이티브 빌드 전용.
 
-```sh
-./build.sh
-```
-
-현재 Linux 또는 macOS host의 native binary만 필요하고 표준 cross-target dispatch가
-필요하지 않을 때는 native-only helper를 사용합니다.
+새 체크아웃에서 네이티브 빌드:
 
 ```sh
-./build-linux.sh
-./build-macos.sh
-```
-
-사전에 가장 작은 실용적인 툴체인을 자동으로 감지하고 설치하려면
-건물:
-
-```powershell
-.\build.ps1 -SetupMissingTools
-```
-
-```sh
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
 ./build.sh --setup
+./build.sh --config Release
 ```
 
-두 스크립트 모두 표준 릴리스 대상을 시도하고 성공적인 출력을
-`dist/` 플러그인 호환 이름 사용:
-
-- `kicad-backport-windows-amd64.exe`
-- `kicad-backport-windows-arm64.exe`
-- `kicad-backport-linux-amd64`
-- `kicad-backport-linux-arm64`
-- `kicad-backport-darwin-amd64`
-- `kicad-backport-darwin-arm64`
-
-이전 빌드를 제거하려면 `.\build.ps1 -Clean` 또는 `./build.sh --clean`을 사용하세요.
-재구축 전 출력.
-
-해당 native build tree와 output만 정리하려면 `./build-linux.sh --clean` 또는
-`./build-macos.sh --clean`을 사용합니다. 두 native helper 모두 `--config <name>`,
-`--generator <cmake-generator>`, `--jobs <n>`을 받습니다.
-
-C++ 크로스 컴파일에는 플랫폼 툴체인이 필요합니다. Windows에서는 `build.ps1`
-Visual Studio를 사용하여 `windows-amd64` 및 `windows-arm64`을 빌드하고
-WSL 도구 체인을 사용할 수 있는 경우 WSL을 통한 `linux-amd64`/`linux-arm64`입니다.
-Linux에서 `build.sh`은 기본 Linux를 빌드하고 다음과 같은 경우 `linux-arm64`을 빌드할 수 있습니다.
-`aarch64-linux-gnu-g++`이(가) 설치되었습니다. macOS에서 `build.sh`은 Darwin을 빌드합니다.
-amd64/arm64와 Apple SDK. Darwin 바이너리는 macOS에서 생성되어야 합니다.
-엄격한 native build에서는 `build-linux.sh`가 host Linux C++ toolchain을 사용하고,
-`build-macos.sh`는 `xcrun`을 통해 Apple Command Line Tools를 사용합니다.
-
-하위 집합을 작성하려면 다음을 수행하십시오.
+Windows에서는:
 
 ```powershell
-.\build.ps1 -Targets windows-amd64,windows-arm64
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
+.\build.ps1 -SetupMissingTools
+.\build.ps1 -Targets windows-amd64
 ```
 
-```sh
-TARGETS="linux-amd64 linux-arm64" ./build.sh
-```
-
-크로스 빌드 환경 설정:
+Windows에서 WSL을 통해 Linux 대상 빌드:
 
 ```powershell
-.\scripts\setup-cross.ps1
-.\scripts\setup-cross.ps1 -CheckOnly
+.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
 ```
+
+유용한 네이티브 옵션:
 
 ```sh
-./scripts/setup-cross.sh
-./scripts/setup-cross.sh --check-only
+./build.sh --clean
+./build.sh --compiler g++-8
+./build.sh --direct
+./build.sh --static-runtime off
 ```
 
-설정 스크립트는 가장 작은 실제 빌드 도구 체인을 자동으로 설치합니다.
-호스트 플랫폼용. 누락된 내용만 보고하려면 `-CheckOnly` 또는 `--check-only`을(를) 사용하세요.
-아무것도 설치하지 않고 도구.
-
-Windows에서 설정 스크립트는 CMake, Visual Studio C++를 설치하거나 준비합니다.
-Linux에 필요한 빌드 도구, WSL, Ubuntu 및 최소 WSL 패키지
-amd64/arm64 빌드. Linux에서는 기본 C++ 컴파일러인 CMake, Ninja,
-호스트 패키지에서 지원하는 aarch64 Linux 크로스 컴파일러
-관리자. macOS에서는 Apple 명령줄 도구를 트리거하고 CMake/Ninja를 설치합니다.
-가능한 경우 Homebrew를 통해.
+출력은 `dist/`에 복사됩니다. 현재 소스는 `filesystem`, `pmr`, `string_view` 때문에 C++17 지원이 필요합니다. 호환 계층은 standard 또는 experimental 구현을 받아들이며, 직접 빌드는 `-std=c++17`에서 `-std=c++1z`로 폴백합니다.
 
 수동 CMake 빌드:
 
@@ -224,9 +175,11 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-구현은 의도적으로 종속성이 없으며 KiCad 스타일 C++를 따릅니다.
-형식 지정 규칙.
+CMake 없는 수동 빌드:
 
+```sh
+./build.sh --config Release --target native --direct
+```
 ## 감사의 말
 
 이 프로젝트 개발 중 도움을 준 Hubert에게 특별히 감사드립니다.

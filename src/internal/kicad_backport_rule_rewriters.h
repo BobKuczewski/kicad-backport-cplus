@@ -1,4 +1,5 @@
-#pragma once
+#ifndef KICAD_BACKPORT_INTERNAL_KICAD_BACKPORT_RULE_REWRITERS_H
+#define KICAD_BACKPORT_INTERNAL_KICAD_BACKPORT_RULE_REWRITERS_H
 
 #include "kicad_backport/sexpr.h"
 
@@ -123,3 +124,5 @@ std::vector<std::string> removeIntroduced( SEXPR::NODE* aRoot, int aTarget,
                                            const std::vector<FEATURE_RULE>& aRules );
 
 } // namespace KICAD_BACKPORT::RULE_REWRITERS
+
+#endif // KICAD_BACKPORT_INTERNAL_KICAD_BACKPORT_RULE_REWRITERS_H

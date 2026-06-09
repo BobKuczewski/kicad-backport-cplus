@@ -119,105 +119,116 @@ kicad-backport-cplus/
   include/kicad_backport/   public headers
   src/                      implementation files
   src/internal/             private headers
-  scripts/                  cross-build environment setup
   build/                    generated build trees
   dist/                     packaged command-line binaries
 ```
 
-## 建造
+## 构建
 
-在当前平台上构建：
+现在只保留两个构建入口：
+
+- `build.ps1`：Windows 原生构建，以及暂时保留的 Windows 下通过 WSL 构建 Linux 目标。
+- `build.sh`：Linux/macOS 原生构建，不做跨编译。
+
+从全新仓库拉取到原生编译：
+
+```sh
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
+./build.sh --setup
+./build.sh --config Release
+```
+
+Windows 原生编译：
+
+```powershell
+git clone <repo-url> kicad-backport-cplus
+cd kicad-backport-cplus
+.\build.ps1 -SetupMissingTools
+.\build.ps1 -Targets windows-amd64
+```
+
+Windows 原生构建：
 
 ```powershell
 .\build.ps1
 ```
 
-```sh
-./build.sh
+构建 Windows 子集：
+
+```powershell
+.\build.ps1 -Targets windows-amd64
 ```
 
-如果只需要当前 Linux 或 macOS 主机的原生二进制，而不需要标准跨目标分派，
-使用原生构建入口：
+在 Windows 下通过 WSL 构建 Linux 目标：
 
-```sh
-./build-linux.sh
-./build-macos.sh
+```powershell
+.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
 ```
 
-之前自动检测并安装最小的实用工具链
-建筑：
+工具缺失时，可让 Windows 入口尽量安装 WSL 内的实用工具链包：
 
 ```powershell
 .\build.ps1 -SetupMissingTools
 ```
 
+Linux/macOS 原生构建：
+
 ```sh
-./build.sh --setup
+./build.sh
 ```
 
-两个脚本都尝试标准发布目标并将成功的输出复制到
-`dist/` 使用插件兼容的名称：
+POSIX 入口是自包含的：`--setup` 会尽量安装/检查原生工具链；CMake 可用且版本足够时
+优先使用 CMake；CMake 缺失或过旧时会回退到直接 `g++`/`clang++` 编译。它只构建
+当前主机目标；跨编译暂时只保留在 Windows 的 `build.ps1` 中。
+
+常用原生选项：
+
+```sh
+./build.sh --setup
+./build.sh --clean
+./build.sh --config Release
+./build.sh --compiler g++-8
+./build.sh --direct
+./build.sh --static-runtime off
+```
+
+构建输出会复制到 `dist/`，使用插件兼容名称：
 
 - `kicad-backport-windows-amd64.exe`
 - `kicad-backport-windows-arm64.exe`
 - `kicad-backport-linux-amd64`
 - `kicad-backport-linux-arm64`
+- `kicad-backport-linux-armhf`
 - `kicad-backport-darwin-amd64`
 - `kicad-backport-darwin-arm64`
 
-使用 `.\build.ps1 -Clean` 或 `./build.sh --clean` 删除以前的构建
-重建前的输出。
+直接编译路径在 Linux 上默认使用 `--static-runtime auto`。它会先尝试静态链接
+`libstdc++` / `libgcc`，旧 GCC 失败时补 `-lstdc++fs` 重试；如果系统没有静态
+运行库，再回退到系统动态运行库。CMake 路径会在 GNU C++ 9 之前自动链接
+`stdc++fs`，并通过 CMake 的 `Threads` 包链接 pthread。
 
-使用 `./build-linux.sh --clean` 或 `./build-macos.sh --clean` 只清理对应
-原生构建目录和输出。两个原生脚本都支持 `--config <name>`、
-`--generator <cmake-generator>` 和 `--jobs <n>`。
-
-C++交叉编译需要平台工具链。在 Windows 上，`build.ps1`
-使用 Visual Studio 构建 `windows-amd64` 和 `windows-arm64`，并构建
-当 WSL 工具链可用时，通过 WSL `linux-amd64`/`linux-arm64` 。
-在 Linux 上，`build.sh` 构建本机 Linux，并且可以在以下情况下构建 `linux-arm64`：
-`aarch64-linux-gnu-g++` 已安装。在 macOS 上，`build.sh` 构建 Darwin
-amd64/arm64 与 Apple SDK。 Darwin 二进制文件必须在 macOS 上生成。
-如果只做严格原生构建，`build-linux.sh` 使用主机 Linux C++ 工具链，
-`build-macos.sh` 通过 `xcrun` 使用 Apple Command Line Tools。
-
-要构建子集：
-
-```powershell
-.\build.ps1 -Targets windows-amd64,windows-arm64
-```
-
-```sh
-TARGETS="linux-amd64 linux-arm64" ./build.sh
-```
-
-交叉构建环境设置：
-
-```powershell
-.\scripts\setup-cross.ps1
-.\scripts\setup-cross.ps1 -CheckOnly
-```
-
-```sh
-./scripts/setup-cross.sh
-./scripts/setup-cross.sh --check-only
-```
-
-安装脚本自动安装最小的实用构建工具链
-对于主机平台。使用 `-CheckOnly` 或 `--check-only` 仅报告缺失
-工具，无需安装任何东西。
-
-在 Windows 上，安装脚本安装或准备 CMake、Visual Studio C++
-构建工具、WSL、Ubuntu 以及 Linux 所需的最小 WSL 软件包
-amd64/arm64 构建。在 Linux 上，它安装 CMake、本机 C++ 编译器、Ninja、
-以及主机包支持的 aarch64 Linux 交叉编译器
-经理。在 macOS 上，它会触发 Apple 命令行工具并安装 CMake/Ninja
-通过 Homebrew（如果可用）。
+当前源码仍需要 C++17 级别的语言和库能力，因为使用了 `filesystem`、`pmr` 和
+`string_view`。兼容层会在可用时接受标准库或 experimental 实现；直接编译路径
+也会从 `-std=c++17` 回退到老编译器常见的 `-std=c++1z`。
 
 手动 CMake 构建：
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+手动无 CMake GCC 构建：
+
+```sh
+./build.sh --config Release --target native --direct
+```
+
+如果在旧 Linux 系统上手动使用 CMake，且系统没有静态运行库，可以关闭静态运行库链接：
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKICAD_BACKPORT_STATIC_RUNTIME=OFF
 cmake --build build --config Release
 ```
 
