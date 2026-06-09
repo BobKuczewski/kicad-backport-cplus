@@ -11,7 +11,7 @@ namespace KICAD_BACKPORT
 {
 
 bool IsLegacyKind( KIND aKind );
-DOCUMENT LoadLegacyDocument( const std::filesystem::path& aPath, std::string aText );
+DOCUMENT LoadLegacyDocument( const FS::path& aPath, std::string aText );
 KIND SexprKindForLegacyKind( KIND aKind );
 KIND LegacyKindForSexprKind( KIND aKind );
 int LegacyDocumentMajorVersion( const DOCUMENT& aDocument );

@@ -24,7 +24,7 @@ std::string TargetExtensionForKind( KIND aKind )
 }
 
 
-std::filesystem::path WithTargetExtension( const std::filesystem::path& aPath, KIND aTargetKind )
+FS::path WithTargetExtension( const FS::path& aPath, KIND aTargetKind )
 {
     std::string ext = TargetExtensionForKind( aTargetKind );
 

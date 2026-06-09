@@ -125,17 +125,16 @@ kicad-backport-cplus/
 
 ## 构建
 
-现在只保留两个构建入口：
+现在只保留两个简单的直接构建入口：
 
-- `build.ps1`：Windows 原生构建，以及暂时保留的 Windows 下通过 WSL 构建 Linux 目标。
-- `build.sh`：Linux/macOS 原生构建，不做跨编译。
+- `build.ps1`：Windows 原生 MinGW/g++ 构建。
+- `build.sh`：Linux、Raspberry Pi 和 macOS 原生构建。
 
 从全新仓库拉取到原生编译：
 
 ```sh
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-./build.sh --setup
 ./build.sh --config Release
 ```
 
@@ -144,59 +143,33 @@ Windows 原生编译：
 ```powershell
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-.\build.ps1 -SetupMissingTools
-.\build.ps1 -Targets windows-amd64
-```
-
-Windows 原生构建：
-
-```powershell
 .\build.ps1
 ```
 
-构建 Windows 子集：
 
-```powershell
-.\build.ps1 -Targets windows-amd64
-```
-
-在 Windows 下通过 WSL 构建 Linux 目标：
-
-```powershell
-.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
-```
-
-工具缺失时，可让 Windows 入口尽量安装 WSL 内的实用工具链包：
-
-```powershell
-.\build.ps1 -SetupMissingTools
-```
-
-Linux/macOS 原生构建：
+Linux/Raspberry Pi/macOS 原生构建：
 
 ```sh
 ./build.sh
 ```
 
-POSIX 入口是自包含的：`--setup` 会尽量安装/检查原生工具链；CMake 可用且版本足够时
-优先使用 CMake；CMake 缺失或过旧时会回退到直接 `g++`/`clang++` 编译。它只构建
-当前主机目标；跨编译暂时只保留在 Windows 的 `build.ps1` 中。
+POSIX 入口刻意保持直接：它读取 `kicad_backport_sources.txt`，用
+`g++`/`clang++` 逐个编译源码，再链接生成可执行文件。它不调用项目生成器，也不安装
+工具。要构建 Linux/RPi/macOS 目标，请在对应系统上运行 `build.sh`，或通过
+`--compiler` 传入匹配的编译器。
 
 常用原生选项：
 
 ```sh
-./build.sh --setup
 ./build.sh --clean
 ./build.sh --config Release
 ./build.sh --compiler g++-8
-./build.sh --direct
 ./build.sh --static-runtime off
 ```
 
-构建输出会复制到 `dist/`，使用插件兼容名称：
+构建输出会复制到 `dist/`，使用插件兼容名称。直接脚本当前生成运行它的主机目标：
 
 - `kicad-backport-windows-amd64.exe`
-- `kicad-backport-windows-arm64.exe`
 - `kicad-backport-linux-amd64`
 - `kicad-backport-linux-arm64`
 - `kicad-backport-linux-armhf`
@@ -204,32 +177,18 @@ POSIX 入口是自包含的：`--setup` 会尽量安装/检查原生工具链；
 - `kicad-backport-darwin-arm64`
 
 直接编译路径在 Linux 上默认使用 `--static-runtime auto`。它会先尝试静态链接
-`libstdc++` / `libgcc`，旧 GCC 失败时补 `-lstdc++fs` 重试；如果系统没有静态
-运行库，再回退到系统动态运行库。CMake 路径会在 GNU C++ 9 之前自动链接
-`stdc++fs`，并通过 CMake 的 `Threads` 包链接 pthread。
+`libstdc++` / `libgcc`；如果系统没有静态运行库，再回退到系统动态运行库。
 
-当前源码仍需要 C++17 级别的语言和库能力，因为使用了 `filesystem`、`pmr` 和
-`string_view`。兼容层会在可用时接受标准库或 experimental 实现；直接编译路径
-也会从 `-std=c++17` 回退到老编译器常见的 `-std=c++1z`。
+当前源码避免依赖较新的标准库文件系统、字符串视图、PMR 和 memory-resource
+设施；路径/目录访问使用项目自有轻量 API，文本处理使用 `std::string`。直接编译
+路径仍会从 `-std=c++17` 回退到老编译器常见的 `-std=c++1z`。直接编译也会探测当前工具链是否支持段级垃圾回收和符号剥离参数，只在支持时启用。
+项目转换会按顺序处理复制后的文档，以便在低内存 Linux/RPi 系统上保持可预期的
+峰值内存占用。
 
-手动 CMake 构建：
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-手动无 CMake GCC 构建：
+手动直接 GCC 构建：
 
 ```sh
-./build.sh --config Release --target native --direct
-```
-
-如果在旧 Linux 系统上手动使用 CMake，且系统没有静态运行库，可以关闭静态运行库链接：
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKICAD_BACKPORT_STATIC_RUNTIME=OFF
-cmake --build build --config Release
+./build.sh --config Release --target native
 ```
 
 该实现有意无依赖并遵循 KiCad 风格的 C++

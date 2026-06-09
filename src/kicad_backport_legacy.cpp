@@ -1253,9 +1253,9 @@ std::map<std::string, LEGACY_SYMBOL_DEF> schematicCacheSymbolDefs(
 
     for( const std::string& libraryName : libraryNames )
     {
-        std::filesystem::path libPath = aDocument.Path.parent_path() / ( libraryName + ".lib" );
+        FS::path libPath = aDocument.Path.parent_path() / ( libraryName + ".lib" );
 
-        if( !std::filesystem::exists( libPath ) )
+        if( !FS::exists( libPath ) )
             continue;
 
         std::string currentName;
@@ -1347,9 +1347,9 @@ std::map<std::string, std::string> schematicCacheSymbolLibraries(
 
     for( const std::string& libraryName : libraryNames )
     {
-        std::filesystem::path libPath = aDocument.Path.parent_path() / ( libraryName + ".lib" );
+        FS::path libPath = aDocument.Path.parent_path() / ( libraryName + ".lib" );
 
-        if( !std::filesystem::exists( libPath ) )
+        if( !FS::exists( libPath ) )
             continue;
 
         std::string currentName;
@@ -1396,13 +1396,6 @@ std::map<std::string, std::string> schematicCacheSymbolLibraries(
     }
 
     return libraries;
-}
-
-
-std::string valueFromLibId( const std::string& aLibId )
-{
-    size_t pos = aLibId.find( ':' );
-    return pos == std::string::npos ? aLibId : aLibId.substr( pos + 1 );
 }
 
 
@@ -2470,11 +2463,11 @@ void appendUnique( std::vector<std::string>& aValues, const std::string& aValue 
 }
 
 
-std::string firstSymbolLibraryNickname( const std::filesystem::path& aSchematicPath )
+std::string firstSymbolLibraryNickname( const FS::path& aSchematicPath )
 {
-    std::filesystem::path tablePath = aSchematicPath.parent_path() / "sym-lib-table";
+    FS::path tablePath = aSchematicPath.parent_path() / "sym-lib-table";
 
-    if( !std::filesystem::exists( tablePath ) )
+    if( !FS::exists( tablePath ) )
         return "";
 
     try
@@ -2503,12 +2496,12 @@ std::string firstSymbolLibraryNickname( const std::filesystem::path& aSchematicP
 }
 
 
-std::vector<std::string> symbolLibraryNicknames( const std::filesystem::path& aProjectPath )
+std::vector<std::string> symbolLibraryNicknames( const FS::path& aProjectPath )
 {
     std::vector<std::string> names;
-    std::filesystem::path tablePath = aProjectPath.parent_path() / "sym-lib-table";
+    FS::path tablePath = aProjectPath.parent_path() / "sym-lib-table";
 
-    if( !std::filesystem::exists( tablePath ) )
+    if( !FS::exists( tablePath ) )
         return names;
 
     try
@@ -2533,18 +2526,20 @@ std::vector<std::string> symbolLibraryNicknames( const std::filesystem::path& aP
 }
 
 
-std::vector<std::string> localSymbolLibraryStems( const std::filesystem::path& aProjectPath )
+std::vector<std::string> localSymbolLibraryStems( const FS::path& aProjectPath )
 {
     std::vector<std::string> names;
-    std::filesystem::path dir = aProjectPath.parent_path();
+    FS::path dir = aProjectPath.parent_path();
 
-    if( !std::filesystem::exists( dir ) )
+    if( !FS::exists( dir ) )
         return names;
 
     std::error_code error;
 
-    for( const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator( dir, error ) )
+    for( FS::directory_iterator it( dir, error ), end; it != end; ++it )
     {
+        const FS::directory_entry& entry = *it;
+
         if( error )
             break;
 
@@ -2568,7 +2563,7 @@ std::string legacySchematicSymbolName( const std::string& aLibId )
 
 
 std::string legacySchematicLibraryName( const std::string& aLibId,
-                                        const std::filesystem::path& aSchematicPath )
+                                        const FS::path& aSchematicPath )
 {
     std::string::size_type sep = aLibId.rfind( ':' );
 
@@ -2585,7 +2580,7 @@ std::string legacySchematicLibraryName( const std::string& aLibId,
 
 
 std::string legacySchematicComponentLibId( const std::string& aLibId,
-                                           const std::filesystem::path& aSchematicPath,
+                                           const FS::path& aSchematicPath,
                                            int aTargetMajor )
 {
     std::string symbolName = legacySchematicSymbolName( aLibId );
@@ -2603,7 +2598,7 @@ std::string legacySchematicComponentLibId( const std::string& aLibId,
 
 
 std::vector<std::string> schematicLegacyLibraryNames( SEXPR::NODE* aRoot,
-                                                      const std::filesystem::path& aSchematicPath )
+                                                      const FS::path& aSchematicPath )
 {
     std::vector<std::string> names;
 
@@ -2643,10 +2638,10 @@ std::string legacyLibraryToSexpr( const DOCUMENT& aDocument, const std::string& 
     appendChild( root.get(), atomList( "generator", "kicad-backport" ) );
 
     std::map<std::string, LEGACY_DOC_META> docMeta;
-    std::filesystem::path dcmPath = aDocument.Path;
+    FS::path dcmPath = aDocument.Path;
     dcmPath.replace_extension( ".dcm" );
 
-    if( std::filesystem::exists( dcmPath ) )
+    if( FS::exists( dcmPath ) )
     {
         std::string currentName;
         LEGACY_DOC_META currentMeta;
@@ -3182,7 +3177,7 @@ bool nodeHasAtom( SEXPR::NODE* aNode, const std::string& aAtom )
     for( const std::unique_ptr<SEXPR::NODE>& child : aNode->Children )
     {
         if( child && child->IsAtom()
-            && std::string_view( child->Atom.data(), child->Atom.size() ) == aAtom )
+            && child->Atom == aAtom )
             return true;
     }
 
@@ -4143,7 +4138,7 @@ std::string LegacyTargetVersionForKind( KIND aKind, int aTargetMajor )
 }
 
 
-DOCUMENT LoadLegacyDocument( const std::filesystem::path& aPath, std::string aText )
+DOCUMENT LoadLegacyDocument( const FS::path& aPath, std::string aText )
 {
     DOCUMENT doc;
     doc.Path = aPath;

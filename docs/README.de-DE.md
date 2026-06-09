@@ -129,58 +129,45 @@ kicad-backport-cplus/
 
 ## Bauen
 
-Es gibt nur zwei Build-Einstiegspunkte:
+There are two simple direct build entrypoints:
 
-- `build.ps1` für native Windows-Builds und temporäre Linux-Cross-Builds von Windows aus über WSL.
-- `build.sh` nur für native Linux-/macOS-Builds.
+- `build.ps1` for Windows native MinGW/g++ builds.
+- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
 
-Nativer Build aus einem frischen Checkout:
+Native Linux/RPi/macOS build:
 
 ```sh
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-./build.sh --setup
 ./build.sh --config Release
 ```
 
-Unter Windows:
+Windows native MinGW/g++ build:
 
 ```powershell
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-.\build.ps1 -SetupMissingTools
-.\build.ps1 -Targets windows-amd64
+.\build.ps1
 ```
 
-Linux-Ziele von Windows aus über WSL:
-
-```powershell
-.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
-```
-
-Nützliche native Optionen:
+Useful native options:
 
 ```sh
 ./build.sh --clean
 ./build.sh --compiler g++-8
-./build.sh --direct
 ./build.sh --static-runtime off
 ```
 
-Die Ausgaben werden nach `dist/` kopiert. Der aktuelle Quellcode benötigt C++17-Unterstützung für `filesystem`, `pmr` und `string_view`; die Kompatibilitätsschicht akzeptiert standard- oder experimental-Implementierungen, und direkte Builds fallen von `-std=c++17` auf `-std=c++1z` zurück.
+Outputs are copied to `dist/`. The current source requires C++17 support for
+newer standard-library filesystem, view-string, PMR, and memory-resource facilities; it uses a small project-owned path/directory API plus `std::string`. Direct builds fall back from `-std=c++17` to
+`-std=c++1z` when needed. Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
 
-Manueller CMake-Build:
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-Manueller Build ohne CMake:
+Manual direct GCC build:
 
 ```sh
-./build.sh --config Release --target native --direct
+./build.sh --config Release --target native
 ```
+
 ## Danksagungen
 
 Besonderer Dank gilt Hubert fuer die Hilfe waehrend der Entwicklung dieses

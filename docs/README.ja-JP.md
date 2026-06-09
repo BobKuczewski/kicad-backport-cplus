@@ -128,58 +128,45 @@ kicad-backport-cplus/
 
 ## ビルド
 
-ビルド入口は 2 つだけです。
+There are two simple direct build entrypoints:
 
-- `build.ps1`: Windows ネイティブビルドと、暫定的に Windows から WSL 経由で行う Linux クロスビルド。
-- `build.sh`: Linux/macOS ネイティブビルド専用。
+- `build.ps1` for Windows native MinGW/g++ builds.
+- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
 
-新しい checkout からのネイティブビルド:
+Native Linux/RPi/macOS build:
 
 ```sh
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-./build.sh --setup
 ./build.sh --config Release
 ```
 
-Windows の場合:
+Windows native MinGW/g++ build:
 
 ```powershell
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-.\build.ps1 -SetupMissingTools
-.\build.ps1 -Targets windows-amd64
+.\build.ps1
 ```
 
-Windows から WSL 経由で Linux ターゲットをビルド:
-
-```powershell
-.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
-```
-
-便利なネイティブオプション:
+Useful native options:
 
 ```sh
 ./build.sh --clean
 ./build.sh --compiler g++-8
-./build.sh --direct
 ./build.sh --static-runtime off
 ```
 
-出力は `dist/` にコピーされます。現在のソースは `filesystem`、`pmr`、`string_view` のため C++17 対応が必要です。互換レイヤーは standard または experimental 実装を受け入れ、直接ビルドでは `-std=c++17` から `-std=c++1z` にフォールバックします。
+Outputs are copied to `dist/`. The current source requires C++17 support for
+newer standard-library filesystem, view-string, PMR, and memory-resource facilities; it uses a small project-owned path/directory API plus `std::string`. Direct builds fall back from `-std=c++17` to
+`-std=c++1z` when needed. Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
 
-手動 CMake ビルド:
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-CMake なしの手動ビルド:
+Manual direct GCC build:
 
 ```sh
-./build.sh --config Release --target native --direct
+./build.sh --config Release --target native
 ```
+
 ## 謝辞
 
 このプロジェクトの開発中に支援してくれた Hubert に特別な感謝を表します。

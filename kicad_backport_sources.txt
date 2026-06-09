@@ -8,5 +8,6 @@ src/kicad_backport_rules.cpp
 src/kicad_backport_upgrade.cpp
 src/kicad_backport_util.cpp
 src/kicad_backport_versions.cpp
+src/filesystem.cpp
 src/main.cpp
 src/sexpr.cpp

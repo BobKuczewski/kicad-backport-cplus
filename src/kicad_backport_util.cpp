@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
-#include <sstream>
+#include <limits>
 #include <stdexcept>
 
 
@@ -78,36 +78,70 @@ std::string JsonEscape( const std::string& aValue )
 }
 
 
-std::string ReadTextFile( const std::filesystem::path& aPath )
+std::string ReadTextFile( const FS::path& aPath )
 {
     std::ifstream file( aPath, std::ios::binary );
 
     if( !file )
         throw std::runtime_error( "cannot read file: " + aPath.string() );
 
-    std::ostringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
+    file.seekg( 0, std::ios::end );
+    std::streamoff size = file.tellg();
+
+    if( size < 0 )
+        throw std::runtime_error( "cannot read file size: " + aPath.string() );
+
+    if( static_cast<unsigned long long>( size )
+        > static_cast<unsigned long long>( std::numeric_limits<size_t>::max() ) )
+    {
+        throw std::runtime_error( "file is too large to read on this platform: " + aPath.string() );
+    }
+
+    std::string text( static_cast<size_t>( size ), '\0' );
+    file.seekg( 0, std::ios::beg );
+
+    size_t offset = 0;
+
+    while( offset < text.size() )
+    {
+        size_t remaining = text.size() - offset;
+        size_t chunk = std::min<size_t>( remaining, 1024 * 1024 );
+        file.read( &text[offset], static_cast<std::streamsize>( chunk ) );
+
+        if( file.gcount() <= 0 )
+            throw std::runtime_error( "cannot read file contents: " + aPath.string() );
+
+        offset += static_cast<size_t>( file.gcount() );
+    }
+
+    if( !file )
+        throw std::runtime_error( "cannot read file contents: " + aPath.string() );
+
+    return text;
 }
 
 
-void WriteTextFile( const std::filesystem::path& aPath, const std::string& aText )
+void WriteTextFile( const FS::path& aPath, const std::string& aText )
 {
     // Create parent directories so report and converted file writes are atomic at call sites.
-    std::filesystem::create_directories( aPath.parent_path().empty() ? "." : aPath.parent_path() );
+    FS::create_directories( aPath.parent_path().empty() ? "." : aPath.parent_path() );
 
     std::ofstream file( aPath, std::ios::binary | std::ios::trunc );
 
     if( !file )
         throw std::runtime_error( "cannot write file: " + aPath.string() );
 
-    file << aText;
+    if( !aText.empty() )
+        file.write( aText.data(), static_cast<std::streamsize>( aText.size() ) );
+
+    if( !file )
+        throw std::runtime_error( "cannot write file contents: " + aPath.string() );
 }
 
 
-std::string ReplaceExtension( const std::filesystem::path& aPath, const std::string& aExt )
+std::string ReplaceExtension( const FS::path& aPath, const std::string& aExt )
 {
-    std::filesystem::path copy = aPath;
+    FS::path copy = aPath;
     copy.replace_extension( aExt );
     return copy.string();
 }

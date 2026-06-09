@@ -18,20 +18,15 @@ class NODE
 public:
     NODE();
 
-    std::shared_ptr<std::pmr::monotonic_buffer_resource> ArenaOwner;
-    std::pmr::string                  Atom;
+    std::string                       Atom;
     bool                              Quoted = false;
-    std::pmr::vector<std::unique_ptr<NODE>> Children;
-
-    static void* operator new( size_t aSize );
-    static void operator delete( void* aPtr ) noexcept;
-    static void operator delete( void* aPtr, size_t aSize ) noexcept;
+    std::vector<std::unique_ptr<NODE>> Children;
 
     bool IsAtom() const { return Children.empty(); }
     std::string Head() const;
-    std::string_view HeadView() const;
+    const std::string& HeadView() const;
     std::string AtomAt( size_t aIndex ) const;
-    std::string_view AtomAtView( size_t aIndex ) const;
+    const std::string& AtomAtView( size_t aIndex ) const;
     bool SetAtomAt( size_t aIndex, const std::string& aValue, bool aQuoted );
     NODE* ChildList( const std::string& aHead );
     std::vector<NODE*> ChildLists( const std::string& aHead );

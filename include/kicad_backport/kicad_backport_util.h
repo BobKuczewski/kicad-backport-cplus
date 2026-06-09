@@ -2,6 +2,7 @@
 #define KICAD_BACKPORT_KICAD_BACKPORT_UTIL_H
 
 #include "kicad_backport/compat.h"
+#include "kicad_backport/filesystem.h"
 
 #include <string>
 
@@ -19,9 +20,9 @@ bool IsNumber( const std::string& aValue );
 
 // Small IO and formatting helpers shared by CLI and report modules.
 std::string JsonEscape( const std::string& aValue );
-std::string ReadTextFile( const std::filesystem::path& aPath );
-void WriteTextFile( const std::filesystem::path& aPath, const std::string& aText );
-std::string ReplaceExtension( const std::filesystem::path& aPath, const std::string& aExt );
+std::string ReadTextFile( const FS::path& aPath );
+void WriteTextFile( const FS::path& aPath, const std::string& aText );
+std::string ReplaceExtension( const FS::path& aPath, const std::string& aExt );
 
 } // namespace KICAD_BACKPORT
 

@@ -90,7 +90,7 @@ int downgradeCustomPadsToRects( SEXPR::NODE* aRoot )
         if( aRoot->SetAtomAt( 3, "rect", false ) )
             ++changed;
 
-        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+        std::vector<std::unique_ptr<SEXPR::NODE>> kept;
         kept.reserve( aRoot->Children.size() );
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
@@ -166,7 +166,7 @@ int downgradePcbHeaderToLegacy5( SEXPR::NODE* aRoot )
         else if( child->HeadView() == "layers" )
         {
             std::set<std::string> seenLayerNames;
-            std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( child->Children.get_allocator() );
+            std::vector<std::unique_ptr<SEXPR::NODE>> kept;
             kept.reserve( child->Children.size() );
 
             if( !child->Children.empty() )

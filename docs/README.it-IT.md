@@ -128,58 +128,45 @@ kicad-backport-cplus/
 
 ## Costruire
 
-Ci sono solo due punti di ingresso per la compilazione:
+There are two simple direct build entrypoints:
 
-- `build.ps1` per build native Windows e build cross Linux temporanee da Windows tramite WSL.
-- `build.sh` solo per build native Linux/macOS.
+- `build.ps1` for Windows native MinGW/g++ builds.
+- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
 
-Build nativa da un checkout pulito:
+Native Linux/RPi/macOS build:
 
 ```sh
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-./build.sh --setup
 ./build.sh --config Release
 ```
 
-Su Windows:
+Windows native MinGW/g++ build:
 
 ```powershell
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-.\build.ps1 -SetupMissingTools
-.\build.ps1 -Targets windows-amd64
+.\build.ps1
 ```
 
-Target Linux da Windows tramite WSL:
-
-```powershell
-.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
-```
-
-Opzioni native utili:
+Useful native options:
 
 ```sh
 ./build.sh --clean
 ./build.sh --compiler g++-8
-./build.sh --direct
 ./build.sh --static-runtime off
 ```
 
-Gli output vengono copiati in `dist/`. Il sorgente attuale richiede supporto C++17 per `filesystem`, `pmr` e `string_view`; il livello di compatibilità accetta implementazioni standard o experimental e le build dirette passano da `-std=c++17` a `-std=c++1z` se necessario.
+Outputs are copied to `dist/`. The current source requires C++17 support for
+newer standard-library filesystem, view-string, PMR, and memory-resource facilities; it uses a small project-owned path/directory API plus `std::string`. Direct builds fall back from `-std=c++17` to
+`-std=c++1z` when needed. Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
 
-Build CMake manuale:
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-Build manuale senza CMake:
+Manual direct GCC build:
 
 ```sh
-./build.sh --config Release --target native --direct
+./build.sh --config Release --target native
 ```
+
 ## Ringraziamenti
 
 Un ringraziamento speciale a Hubert per l'aiuto fornito durante lo sviluppo di questo

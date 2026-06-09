@@ -25,7 +25,7 @@ std::string KindName( KIND aKind )
 }
 
 
-KIND DetectKind( const std::filesystem::path& aPath, const std::string& aTopLevel )
+KIND DetectKind( const FS::path& aPath, const std::string& aTopLevel )
 {
     // Prefer the root S-expression head because copied files may have odd names.
     if( aTopLevel == "kicad_symbol_lib" )

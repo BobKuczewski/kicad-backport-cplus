@@ -15,7 +15,7 @@ namespace KICAD_BACKPORT
 namespace
 {
 
-bool containsString( const std::set<std::string>& aSet, std::string_view aValue )
+bool containsString( const std::set<std::string>& aSet, const std::string& aValue )
 {
     for( const std::string& item : aSet )
     {
@@ -226,7 +226,7 @@ int removeChildrenFromParents( SEXPR::NODE* aRoot, const std::set<std::string>& 
 
     if( containsString( aParents, aRoot->HeadView() ) )
     {
-        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+        std::vector<std::unique_ptr<SEXPR::NODE>> kept;
         kept.reserve( aRoot->Children.size() );
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
@@ -259,7 +259,7 @@ int removeIdFromStandardProperties( SEXPR::NODE* aRoot )
 
     if( aRoot->HeadView() == "property" )
     {
-        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+        std::vector<std::unique_ptr<SEXPR::NODE>> kept;
         kept.reserve( aRoot->Children.size() );
 
         for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
@@ -296,7 +296,7 @@ int moveEffectsHideToProperty( SEXPR::NODE* aRoot )
 
         if( effects )
         {
-            std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( effects->Children.get_allocator() );
+            std::vector<std::unique_ptr<SEXPR::NODE>> kept;
             kept.reserve( effects->Children.size() );
             bool hidden = false;
 
@@ -364,7 +364,7 @@ int upgradeBoardNetCodesToNames( SEXPR::NODE* aRoot )
     if( codeToName.empty() )
         return 0;
 
-    auto visit = [&]( auto&& self, SEXPR::NODE* node, std::string_view parentHead ) -> int
+    auto visit = [&]( auto&& self, SEXPR::NODE* node, const std::string& parentHead ) -> int
     {
         if( !node || node->IsAtom() )
             return 0;
@@ -386,7 +386,7 @@ int upgradeBoardNetCodesToNames( SEXPR::NODE* aRoot )
             }
         }
 
-        std::string head = node->Head();
+        const std::string& head = node->HeadView();
 
         for( std::unique_ptr<SEXPR::NODE>& child : node->Children )
             changed += self( self, child.get(), head );
@@ -394,7 +394,7 @@ int upgradeBoardNetCodesToNames( SEXPR::NODE* aRoot )
         return changed;
     };
 
-    return visit( visit, aRoot, std::string_view() );
+    return visit( visit, aRoot, std::string() );
 }
 
 

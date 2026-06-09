@@ -128,58 +128,45 @@ kicad-backport-cplus/
 
 ## 빌드
 
-빌드 진입점은 두 개만 유지합니다.
+There are two simple direct build entrypoints:
 
-- `build.ps1`: Windows 네이티브 빌드와, 임시로 Windows에서 WSL을 통한 Linux 크로스 빌드.
-- `build.sh`: Linux/macOS 네이티브 빌드 전용.
+- `build.ps1` for Windows native MinGW/g++ builds.
+- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
 
-새 체크아웃에서 네이티브 빌드:
+Native Linux/RPi/macOS build:
 
 ```sh
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-./build.sh --setup
 ./build.sh --config Release
 ```
 
-Windows에서는:
+Windows native MinGW/g++ build:
 
 ```powershell
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-.\build.ps1 -SetupMissingTools
-.\build.ps1 -Targets windows-amd64
+.\build.ps1
 ```
 
-Windows에서 WSL을 통해 Linux 대상 빌드:
-
-```powershell
-.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
-```
-
-유용한 네이티브 옵션:
+Useful native options:
 
 ```sh
 ./build.sh --clean
 ./build.sh --compiler g++-8
-./build.sh --direct
 ./build.sh --static-runtime off
 ```
 
-출력은 `dist/`에 복사됩니다. 현재 소스는 `filesystem`, `pmr`, `string_view` 때문에 C++17 지원이 필요합니다. 호환 계층은 standard 또는 experimental 구현을 받아들이며, 직접 빌드는 `-std=c++17`에서 `-std=c++1z`로 폴백합니다.
+Outputs are copied to `dist/`. The current source requires C++17 support for
+newer standard-library filesystem, view-string, PMR, and memory-resource facilities; it uses a small project-owned path/directory API plus `std::string`. Direct builds fall back from `-std=c++17` to
+`-std=c++1z` when needed. Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
 
-수동 CMake 빌드:
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-CMake 없는 수동 빌드:
+Manual direct GCC build:
 
 ```sh
-./build.sh --config Release --target native --direct
+./build.sh --config Release --target native
 ```
+
 ## 감사의 말
 
 이 프로젝트 개발 중 도움을 준 Hubert에게 특별히 감사드립니다.

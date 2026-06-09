@@ -2,6 +2,7 @@
 #define KICAD_BACKPORT_KICAD_BACKPORT_H
 
 #include "kicad_backport/compat.h"
+#include "kicad_backport/filesystem.h"
 #include "kicad_backport/sexpr.h"
 
 #include <cstddef>
@@ -33,7 +34,7 @@ enum class KIND
 // Parsed KiCad document with its detected type and file version.
 struct DOCUMENT
 {
-    std::filesystem::path     Path;
+    FS::path     Path;
     std::unique_ptr<SEXPR::NODE> Root;
     KIND                      Kind = KIND::UNKNOWN;
     std::string               Version;
@@ -58,8 +59,8 @@ struct FILE_REPORT
 
 struct PROJECT_COPY_ENTRY
 {
-    std::filesystem::path Source;
-    std::filesystem::path Output;
+    FS::path Source;
+    FS::path Output;
     bool                  IsDocument = false;
 };
 
@@ -67,7 +68,7 @@ struct PROJECT_COPY_ENTRY
 class CONVERTER
 {
 public:
-    static constexpr const char* VERSION = "0.4.1";
+    static constexpr const char* VERSION = "0.4.2";
 
     int Run( int aArgc, char** aArgv );
 
@@ -79,40 +80,40 @@ private:
     void printUsage() const;
 
     // Document IO and conversion.
-    DOCUMENT loadDocument( const std::filesystem::path& aPath ) const;
-    FILE_REPORT normalizeFile( const std::filesystem::path& aInput,
-                               const std::filesystem::path& aOutput,
+    DOCUMENT loadDocument( const FS::path& aPath ) const;
+    FILE_REPORT normalizeFile( const FS::path& aInput,
+                               const FS::path& aOutput,
                                const std::string& aTarget,
                                bool aPrintWarnings = true );
-    std::vector<FILE_REPORT> inspectPath( const std::filesystem::path& aPath ) const;
-    std::vector<FILE_REPORT> detectVersionsPath( const std::filesystem::path& aPath ) const;
+    std::vector<FILE_REPORT> inspectPath( const FS::path& aPath ) const;
+    std::vector<FILE_REPORT> detectVersionsPath( const FS::path& aPath ) const;
 
     void ensureVersion( DOCUMENT& aDocument, const std::string& aVersion ) const;
 
     // Output naming helpers.
-    std::filesystem::path versionedOutputPath( const std::filesystem::path& aPath,
+    FS::path versionedOutputPath( const FS::path& aPath,
                                                const std::string& aTarget ) const;
 
     // Project tree filtering and copying.
-    bool isKiCadDocumentPath( const std::filesystem::path& aPath ) const;
-    bool isKiCadProjectFilePath( const std::filesystem::path& aPath ) const;
+    bool isKiCadDocumentPath( const FS::path& aPath ) const;
+    bool isKiCadProjectFilePath( const FS::path& aPath ) const;
     bool isExcludedProjectDirName( const std::string& aName ) const;
-    std::vector<PROJECT_COPY_ENTRY> copyProjectTree( const std::filesystem::path& aInput,
-                                                     const std::filesystem::path& aOutput,
+    std::vector<PROJECT_COPY_ENTRY> copyProjectTree( const FS::path& aInput,
+                                                     const FS::path& aOutput,
                                                      const std::string& aTarget ) const;
 
-    void writeReport( const std::filesystem::path& aPath,
+    void writeReport( const FS::path& aPath,
                       const std::vector<FILE_REPORT>& aReports ) const;
 
     // Creates legacy local board display settings for KiCad 6/7/8.
-    void ensureLegacyProjectLocalSettings( const std::filesystem::path& aPath,
+    void ensureLegacyProjectLocalSettings( const FS::path& aPath,
                                            const std::string& aTargetSuffix,
-                                           const std::filesystem::path& aSourcePath = {} ) const;
+                                           const FS::path& aSourcePath = {} ) const;
 };
 
 // Detects KiCad document type from the root S-expression or file extension.
 std::string KindName( KIND aKind );
-KIND DetectKind( const std::filesystem::path& aPath, const std::string& aTopLevel );
+KIND DetectKind( const FS::path& aPath, const std::string& aTopLevel );
 
 } // namespace KICAD_BACKPORT
 

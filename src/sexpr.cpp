@@ -1,7 +1,6 @@
 #include "kicad_backport/sexpr.h"
 
 #include <cctype>
-#include <cstdint>
 #include <stdexcept>
 
 
@@ -9,42 +8,6 @@ namespace SEXPR
 {
 namespace
 {
-
-thread_local std::pmr::memory_resource* g_parseResource = nullptr;
-
-struct NODE_ALLOCATION_HEADER
-{
-    std::pmr::memory_resource* Resource;
-};
-
-
-size_t alignUp( size_t aValue, size_t aAlignment )
-{
-    return ( aValue + aAlignment - 1 ) & ~( aAlignment - 1 );
-}
-
-
-constexpr uintptr_t GLOBAL_NODE_ALLOCATION = 1;
-
-
-class PARSE_RESOURCE_SCOPE
-{
-public:
-    explicit PARSE_RESOURCE_SCOPE( std::pmr::memory_resource* aResource ) :
-            m_previous( g_parseResource )
-    {
-        g_parseResource = aResource;
-    }
-
-    ~PARSE_RESOURCE_SCOPE()
-    {
-        g_parseResource = m_previous;
-    }
-
-private:
-    std::pmr::memory_resource* m_previous;
-};
-
 
 bool isSpace( char aChar )
 {
@@ -196,7 +159,14 @@ private:
 };
 
 
-bool needsQuotes( std::string_view aAtom )
+const std::string& emptyString()
+{
+    static const std::string empty;
+    return empty;
+}
+
+
+bool needsQuotes( const std::string& aAtom )
 {
     if( aAtom.empty() )
         return true;
@@ -211,7 +181,7 @@ bool needsQuotes( std::string_view aAtom )
 }
 
 
-std::string escapeAtom( std::string_view aAtom )
+std::string escapeAtom( const std::string& aAtom )
 {
     std::string out;
 
@@ -240,7 +210,7 @@ std::string formatAtom( const NODE* aNode )
 }
 
 
-size_t escapedAtomLength( std::string_view aAtom )
+size_t escapedAtomLength( const std::string& aAtom )
 {
     size_t len = 0;
 
@@ -348,49 +318,7 @@ void writeNode( std::string& aOut, const NODE* aNode, int aIndent )
 } // namespace
 
 
-void* NODE::operator new( size_t aSize )
-{
-    const size_t headerSize = alignUp( sizeof( NODE_ALLOCATION_HEADER ), alignof( NODE ) );
-    const size_t totalSize = headerSize + aSize;
-
-    if( g_parseResource )
-    {
-        char* raw = static_cast<char*>( g_parseResource->allocate( totalSize, alignof( NODE ) ) );
-        auto* header = reinterpret_cast<NODE_ALLOCATION_HEADER*>( raw );
-        header->Resource = g_parseResource;
-        return raw + headerSize;
-    }
-
-    char* raw = static_cast<char*>( ::operator new( totalSize ) );
-    auto* header = reinterpret_cast<NODE_ALLOCATION_HEADER*>( raw );
-    header->Resource = reinterpret_cast<std::pmr::memory_resource*>( GLOBAL_NODE_ALLOCATION );
-    return raw + headerSize;
-}
-
-
-void NODE::operator delete( void* aPtr ) noexcept
-{
-    if( !aPtr )
-        return;
-
-    const size_t headerSize = alignUp( sizeof( NODE_ALLOCATION_HEADER ), alignof( NODE ) );
-    char* raw = static_cast<char*>( aPtr ) - headerSize;
-    auto* header = reinterpret_cast<NODE_ALLOCATION_HEADER*>( raw );
-
-    if( reinterpret_cast<uintptr_t>( header->Resource ) == GLOBAL_NODE_ALLOCATION )
-        ::operator delete( raw );
-}
-
-
-void NODE::operator delete( void* aPtr, size_t ) noexcept
-{
-    NODE::operator delete( aPtr );
-}
-
-
-NODE::NODE() :
-        Atom( g_parseResource ? g_parseResource : std::pmr::get_default_resource() ),
-        Children( g_parseResource ? g_parseResource : std::pmr::get_default_resource() )
+NODE::NODE()
 {
 }
 
@@ -425,10 +353,10 @@ std::string NODE::Head() const
 }
 
 
-std::string_view NODE::HeadView() const
+const std::string& NODE::HeadView() const
 {
     if( Children.empty() || !Children[0] || !Children[0]->IsAtom() )
-        return {};
+        return emptyString();
 
     return Children[0]->Atom;
 }
@@ -440,10 +368,10 @@ std::string NODE::AtomAt( size_t aIndex ) const
 }
 
 
-std::string_view NODE::AtomAtView( size_t aIndex ) const
+const std::string& NODE::AtomAtView( size_t aIndex ) const
 {
     if( aIndex >= Children.size() || !Children[aIndex] || !Children[aIndex]->IsAtom() )
-        return {};
+        return emptyString();
 
     return Children[aIndex]->Atom;
 }
@@ -488,13 +416,8 @@ std::vector<NODE*> NODE::ChildLists( const std::string& aHead )
 
 std::unique_ptr<NODE> Parse( const std::string& aText )
 {
-    auto arena = std::make_shared<std::pmr::monotonic_buffer_resource>();
-    PARSE_RESOURCE_SCOPE scope( arena.get() );
-
     PARSER parser( aText );
-    std::unique_ptr<NODE> root = parser.ParseRoot();
-    root->ArenaOwner = arena;
-    return root;
+    return parser.ParseRoot();
 }
 
 

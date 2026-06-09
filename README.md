@@ -129,17 +129,16 @@ kicad-backport-cplus/
 
 ## Build
 
-There are now only two build entrypoints:
+There are now two simple direct build entrypoints:
 
-- `build.ps1` for Windows native builds and temporary Windows-hosted Linux cross builds through WSL.
-- `build.sh` for Linux/macOS native builds only.
+- `build.ps1` for Windows native MinGW/g++ builds.
+- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
 
 Native build from a fresh checkout:
 
 ```sh
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-./build.sh --setup
 ./build.sh --config Release
 ```
 
@@ -148,62 +147,40 @@ On Windows:
 ```powershell
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-.\build.ps1 -SetupMissingTools
-.\build.ps1 -Targets windows-amd64
+.\build.ps1
 ```
 
-Windows native build:
+Windows native MinGW/g++ build:
 
 ```powershell
 .\build.ps1
 ```
 
-Build a Windows subset:
-
-```powershell
-.\build.ps1 -Targets windows-amd64
-```
-
-Build Linux targets from Windows through WSL:
-
-```powershell
-.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
-```
-
-When tools are missing, let the Windows entrypoint install the practical WSL
-toolchain packages where possible:
-
-```powershell
-.\build.ps1 -SetupMissingTools
-```
-
-Linux/macOS native build:
+Linux/Raspberry Pi/macOS native build:
 
 ```sh
 ./build.sh
 ```
 
-The POSIX entrypoint is self-contained: it installs/checks native tools with
-`--setup`, uses CMake when it is available and new enough, and falls back to
-direct `g++`/`clang++` compilation when CMake is missing or too old. It only
-builds the current host target; cross-compilation is temporarily kept in
-`build.ps1` on Windows.
+The POSIX entrypoint is intentionally direct: it reads
+`kicad_backport_sources.txt`, compiles each source file with
+`g++`/`clang++`, then links the executable. It does not call a project generator and does not
+install tools. To build Linux/RPi/macOS targets, run `build.sh` on that target
+system, or pass a matching compiler with `--compiler`.
 
 Useful native options:
 
 ```sh
-./build.sh --setup
 ./build.sh --clean
 ./build.sh --config Release
 ./build.sh --compiler g++-8
-./build.sh --direct
 ./build.sh --static-runtime off
 ```
 
-Outputs are copied to `dist/` using plugin-compatible names:
+Outputs are copied to `dist/` using plugin-compatible names. The direct scripts
+currently produce the host target they are run for:
 
 - `kicad-backport-windows-amd64.exe`
-- `kicad-backport-windows-arm64.exe`
 - `kicad-backport-linux-amd64`
 - `kicad-backport-linux-arm64`
 - `kicad-backport-linux-armhf`
@@ -211,35 +188,18 @@ Outputs are copied to `dist/` using plugin-compatible names:
 - `kicad-backport-darwin-arm64`
 
 `--static-runtime auto` is the default on Linux for direct compiler builds. It
-first tries static `libstdc++` / `libgcc`, retries with `-lstdc++fs` for older
-GCC, then falls back to the system dynamic runtime if static runtime libraries
-are unavailable. CMake builds link `stdc++fs` automatically with GNU C++ before
-9 and link pthreads through CMake's `Threads` package.
+first tries static `libstdc++` / `libgcc`, then falls back to the system dynamic runtime if static runtime libraries are unavailable.
 
-The current source requires C++17-level language/library support because it uses
-`filesystem`, `pmr`, and `string_view`. The compatibility layer accepts standard
-or experimental library implementations where available, and direct builds fall
-back from `-std=c++17` to `-std=c++1z` for older compilers.
+The current source avoids newer standard-library filesystem, view-string, PMR, and memory-resource facilities. It uses a small project-owned path/directory API plus `std::string` for older KiCad-era toolchains. Direct builds fall back from `-std=c++17` to
+`-std=c++1z` for older compilers that spell the C++17 mode that way.
+Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
+Project conversions process copied documents sequentially to keep peak memory
+use predictable on small Linux/RPi systems.
 
-Manual CMake build:
+Manual direct GCC build:
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-Manual no-CMake GCC build:
-
-```sh
-./build.sh --config Release --target native --direct
-```
-
-When using manual CMake on an old Linux system that does not provide static
-runtime libraries, disable static runtime linking:
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKICAD_BACKPORT_STATIC_RUNTIME=OFF
-cmake --build build --config Release
+./build.sh --config Release --target native
 ```
 
 The implementation is intentionally dependency-free and follows KiCad-style C++

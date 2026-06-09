@@ -9,16 +9,13 @@
 
 #include <algorithm>
 #include <chrono>
-#include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <map>
-#include <mutex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
-#include <thread>
 #include <utility>
 
 
@@ -52,7 +49,7 @@ bool timingEnabled()
 }
 
 
-bool isLibraryTablePath( const std::filesystem::path& aPath )
+bool isLibraryTablePath( const FS::path& aPath )
 {
     std::string name = Lower( aPath.filename().string() );
     return name == "sym-lib-table" || name == "fp-lib-table";
@@ -192,7 +189,7 @@ std::string fastVersionForKind( KIND aKind, const std::string& aText )
 }
 
 
-FILE_REPORT detectVersionFast( const std::filesystem::path& aPath )
+FILE_REPORT detectVersionFast( const FS::path& aPath )
 {
     std::string text = ReadTextFile( aPath );
     KIND extensionKind = DetectKind( aPath, std::string() );
@@ -268,7 +265,7 @@ std::string resolveDocumentTargetVersion( const DOCUMENT& aDocument, const std::
 }
 
 
-std::filesystem::path withTargetFamilyExtension( const std::filesystem::path& aPath,
+FS::path withTargetFamilyExtension( const FS::path& aPath,
                                                  const std::string& aTarget )
 {
     int targetMajor = TargetMajorVersion( aTarget );
@@ -299,7 +296,7 @@ int removeDirectChildByHead( SEXPR::NODE* aRoot, const std::string& aHead )
         return 0;
 
     int removed = 0;
-    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
     kept.reserve( aRoot->Children.size() );
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
@@ -359,7 +356,7 @@ int normalizeLegacySymbolLibraryTableEntries( SEXPR::NODE* aRoot )
 }
 
 
-FILE_REPORT normalizeLegacyLibraryTable( const std::filesystem::path& aPath, int aTargetMajor )
+FILE_REPORT normalizeLegacyLibraryTable( const FS::path& aPath, int aTargetMajor )
 {
     FILE_REPORT report;
     report.Path = aPath.string();
@@ -452,19 +449,19 @@ std::string footprintLibraryFootprintName( const std::string& aLibId )
 }
 
 
-bool projectLocalFootprintExists( const std::filesystem::path& aProjectDir,
+bool projectLocalFootprintExists( const FS::path& aProjectDir,
                                   const std::string& aFootprintName )
 {
     if( aFootprintName.empty() )
         return false;
 
-    return std::filesystem::exists( aProjectDir / "Library.pretty"
+    return FS::exists( aProjectDir / "Library.pretty"
                                     / ( aFootprintName + ".kicad_mod" ) );
 }
 
 
 void collectProjectLocalFootprintNicknames( SEXPR::NODE* aNode,
-                                            const std::filesystem::path& aProjectDir,
+                                            const FS::path& aProjectDir,
                                             std::set<std::string>& aNicknames )
 {
     if( !aNode || aNode->IsAtom() )
@@ -488,11 +485,11 @@ void collectProjectLocalFootprintNicknames( SEXPR::NODE* aNode,
 
 
 std::set<std::string> collectProjectLocalFootprintNicknames(
-        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
+        const FS::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
 {
     std::set<std::string> nicknames;
 
-    if( !std::filesystem::is_directory( aProjectDir / "Library.pretty" ) )
+    if( !FS::is_directory( aProjectDir / "Library.pretty" ) )
         return nicknames;
 
     for( const PROJECT_COPY_ENTRY& entry : aCopied )
@@ -551,11 +548,11 @@ std::unique_ptr<SEXPR::NODE> projectLocalSymbolLibraryEntry( const std::string& 
 }
 
 
-std::string projectLibraryUri( const std::filesystem::path& aProjectDir,
-                               const std::filesystem::path& aLibraryPath )
+std::string projectLibraryUri( const FS::path& aProjectDir,
+                               const FS::path& aLibraryPath )
 {
     std::error_code error;
-    std::filesystem::path rel = std::filesystem::relative( aLibraryPath, aProjectDir, error );
+    FS::path rel = FS::relative( aLibraryPath, aProjectDir, error );
 
     if( error )
         rel = aLibraryPath.filename();
@@ -565,7 +562,7 @@ std::string projectLibraryUri( const std::filesystem::path& aProjectDir,
 
 
 std::map<std::string, std::string> collectProjectLocalSymbolLibraries(
-        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
+        const FS::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
         const std::set<std::string>& aAllowedNicknames = {}, bool aFilterNicknames = false )
 {
     std::map<std::string, std::string> libraries;
@@ -590,10 +587,10 @@ std::map<std::string, std::string> collectProjectLocalSymbolLibraries(
 }
 
 
-std::map<std::string, std::filesystem::path> collectProjectLocalSymbolLibraryPaths(
-        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
+std::map<std::string, FS::path> collectProjectLocalSymbolLibraryPaths(
+        const FS::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
 {
-    std::map<std::string, std::filesystem::path> libraries;
+    std::map<std::string, FS::path> libraries;
 
     for( const PROJECT_COPY_ENTRY& entry : aCopied )
     {
@@ -651,7 +648,7 @@ void collectSchematicLibIds( SEXPR::NODE* aNode, std::set<std::string>& aLibIds 
 
 
 std::set<std::string> collectReferencedSchematicLibraryNicknames(
-        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
+        const FS::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied )
 {
     std::set<std::string> nicknames;
 
@@ -695,7 +692,7 @@ SEXPR::NODE* ensureSchematicLibSymbolsNode( SEXPR::NODE* aRoot )
 
     if( existing )
     {
-        std::pmr::vector<std::unique_ptr<SEXPR::NODE>> children( existing->Children.get_allocator() );
+        std::vector<std::unique_ptr<SEXPR::NODE>> children;
         children.push_back( SEXPR::NODE::MakeAtom( "lib_symbols" ) );
         existing->Children = std::move( children );
         return existing;
@@ -870,10 +867,10 @@ bool embedProjectLocalSchematicSymbol(
 
 
 int embedProjectLocalSchematicSymbols(
-        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
+        const FS::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
         std::vector<std::string>& aWarnings )
 {
-    std::map<std::string, std::filesystem::path> libraries =
+    std::map<std::string, FS::path> libraries =
             collectProjectLocalSymbolLibraryPaths( aProjectDir, aCopied );
 
     if( libraries.empty() )
@@ -1020,11 +1017,11 @@ int addProjectLocalSymbolLibraries( SEXPR::NODE* aRoot,
 
 
 FILE_REPORT ensureProjectLocalSymbolLibraryTable(
-        const std::filesystem::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
+        const FS::path& aProjectDir, const std::vector<PROJECT_COPY_ENTRY>& aCopied,
         int aTargetMajor )
 {
     FILE_REPORT report;
-    std::filesystem::path tablePath = aProjectDir / "sym-lib-table";
+    FS::path tablePath = aProjectDir / "sym-lib-table";
     report.Path = tablePath.string();
     report.InputPath = tablePath.string();
     report.OutputPath = tablePath.string();
@@ -1062,7 +1059,7 @@ FILE_REPORT ensureProjectLocalSymbolLibraryTable(
                 root->Children.push_back( std::move( version ) );
             }
         }
-        else if( std::filesystem::exists( tablePath ) )
+        else if( FS::exists( tablePath ) )
         {
             existingText = ReadTextFile( tablePath );
             root = SEXPR::Parse( existingText );
@@ -1136,7 +1133,7 @@ int addProjectLocalFootprintLibraryAliases( SEXPR::NODE* aRoot,
 }
 
 
-int ensureLegacyFootprintLibraryAliases( const std::filesystem::path& aTablePath,
+int ensureLegacyFootprintLibraryAliases( const FS::path& aTablePath,
                                          const std::vector<PROJECT_COPY_ENTRY>& aCopied,
                                          int aTargetMajor,
                                          std::vector<std::string>& aWarnings )
@@ -1144,7 +1141,7 @@ int ensureLegacyFootprintLibraryAliases( const std::filesystem::path& aTablePath
     if( aTargetMajor > 5 || Lower( aTablePath.filename().string() ) != "fp-lib-table" )
         return 0;
 
-    std::filesystem::path projectDir = aTablePath.parent_path();
+    FS::path projectDir = aTablePath.parent_path();
     std::set<std::string> nicknames = collectProjectLocalFootprintNicknames( projectDir, aCopied );
 
     if( nicknames.empty() )
@@ -1440,7 +1437,7 @@ void collectExistingSymbolInstances( SEXPR::NODE* aRoot, SCH_HIERARCHY_INSTANCE_
 }
 
 
-void collectKiCad6HierarchyInstances( const std::filesystem::path& aSchematic,
+void collectKiCad6HierarchyInstances( const FS::path& aSchematic,
                                       SEXPR::NODE* aRoot,
                                       const std::string& aPrefix,
                                       SCH_HIERARCHY_INSTANCE_BUILD& aBuild )
@@ -1497,12 +1494,12 @@ void collectKiCad6HierarchyInstances( const std::filesystem::path& aSchematic,
         if( sheetFile.empty() )
             continue;
 
-        std::filesystem::path childPath = aSchematic.parent_path() / sheetFile;
+        FS::path childPath = aSchematic.parent_path() / sheetFile;
 
-        if( !std::filesystem::exists( childPath ) )
+        if( !FS::exists( childPath ) )
             continue;
 
-        std::string activeKey = std::filesystem::absolute( childPath ).lexically_normal().string();
+        std::string activeKey = FS::absolute( childPath ).lexically_normal().string();
 
         if( aBuild.ActiveFiles.count( activeKey ) != 0 )
             continue;
@@ -1537,7 +1534,7 @@ void replaceRootInstances( SEXPR::NODE* aRoot, SCH_HIERARCHY_INSTANCE_BUILD& aBu
 {
     uniquifyRepeatedSymbolInstanceReferences( aBuild.SymbolInstances.get() );
 
-    std::pmr::vector<std::unique_ptr<SEXPR::NODE>> kept( aRoot->Children.get_allocator() );
+    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
     kept.reserve( aRoot->Children.size() + 2 );
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
@@ -1558,7 +1555,7 @@ void replaceRootInstances( SEXPR::NODE* aRoot, SCH_HIERARCHY_INSTANCE_BUILD& aBu
 }
 
 
-bool rebuildKiCad6HierarchyInstances( const std::filesystem::path& aRootSchematic )
+bool rebuildKiCad6HierarchyInstances( const FS::path& aRootSchematic )
 {
     std::string text = ReadTextFile( aRootSchematic );
     std::unique_ptr<SEXPR::NODE> root = SEXPR::Parse( text );
@@ -1574,7 +1571,7 @@ bool rebuildKiCad6HierarchyInstances( const std::filesystem::path& aRootSchemati
     build.NextPage = nextSheetPage( build.ExistingPages );
     build.SheetInstances->Children.push_back( sheetInstanceNode( "/", "1" ) );
     build.AddedSheetPaths.insert( "/" );
-    build.ActiveFiles.insert( std::filesystem::absolute( aRootSchematic ).lexically_normal().string() );
+    build.ActiveFiles.insert( FS::absolute( aRootSchematic ).lexically_normal().string() );
 
     collectKiCad6HierarchyInstances( aRootSchematic, root.get(), "", build );
     replaceRootInstances( root.get(), build );
@@ -1595,7 +1592,7 @@ void rebuildKiCad6ProjectHierarchyInstances( const std::vector<PROJECT_COPY_ENTR
 }
 
 
-DOCUMENT loadDocumentImpl( const std::filesystem::path& aPath, long long* aReadUs,
+DOCUMENT loadDocumentImpl( const FS::path& aPath, long long* aReadUs,
                            long long* aParseUs )
 {
     DOCUMENT doc;
@@ -1656,7 +1653,7 @@ DOCUMENT loadDocumentImpl( const std::filesystem::path& aPath, long long* aReadU
 }
 
 
-void printTiming( const std::filesystem::path& aPath, long long aReadUs, long long aParseUs,
+void printTiming( const FS::path& aPath, long long aReadUs, long long aParseUs,
                   long long aRulesUs, long long aFormatUs, long long aWriteUs,
                   long long aTotalUs )
 {
@@ -1730,7 +1727,7 @@ void CONVERTER::printUsage() const
 }
 
 
-DOCUMENT CONVERTER::loadDocument( const std::filesystem::path& aPath ) const
+DOCUMENT CONVERTER::loadDocument( const FS::path& aPath ) const
 {
     return loadDocumentImpl( aPath, nullptr, nullptr );
 }
@@ -1760,8 +1757,8 @@ void CONVERTER::ensureVersion( DOCUMENT& aDocument, const std::string& aVersion 
 }
 
 
-FILE_REPORT CONVERTER::normalizeFile( const std::filesystem::path& aInput,
-                                      const std::filesystem::path& aOutput,
+FILE_REPORT CONVERTER::normalizeFile( const FS::path& aInput,
+                                      const FS::path& aOutput,
                                       const std::string& aTarget,
                                       bool aPrintWarnings )
 {
@@ -1861,7 +1858,7 @@ FILE_REPORT CONVERTER::normalizeFile( const std::filesystem::path& aInput,
 
         if( targetKind == KIND::LEGACY_SYMBOL_LIBRARY )
         {
-            std::filesystem::path dcmPath = aOutput.parent_path()
+            FS::path dcmPath = aOutput.parent_path()
                     / ( aOutput.stem().string() + ".dcm" );
             WriteTextFile( dcmPath, LegacyDocumentationSidecarText( doc, targetMajor,
                                                                     &report.Warnings ) );
@@ -1879,7 +1876,7 @@ FILE_REPORT CONVERTER::normalizeFile( const std::filesystem::path& aInput,
     if( source > 0 && source == target )
     {
         if( aInput != aOutput )
-            std::filesystem::copy_file( aInput, aOutput, std::filesystem::copy_options::overwrite_existing );
+            FS::copy_file( aInput, aOutput, FS::copy_options::overwrite_existing );
 
         report.TargetVersion = resolved;
         return report;
@@ -1925,7 +1922,7 @@ FILE_REPORT CONVERTER::normalizeFile( const std::filesystem::path& aInput,
 }
 
 
-bool CONVERTER::isKiCadDocumentPath( const std::filesystem::path& aPath ) const
+bool CONVERTER::isKiCadDocumentPath( const FS::path& aPath ) const
 {
     std::string ext = Lower( aPath.extension().string() );
     return ext == ".kicad_sch" || ext == ".kicad_pcb" || ext == ".kicad_sym"
@@ -1935,7 +1932,7 @@ bool CONVERTER::isKiCadDocumentPath( const std::filesystem::path& aPath ) const
 }
 
 
-bool CONVERTER::isKiCadProjectFilePath( const std::filesystem::path& aPath ) const
+bool CONVERTER::isKiCadProjectFilePath( const FS::path& aPath ) const
 {
     std::string name = Lower( aPath.filename().string() );
 
@@ -1979,12 +1976,12 @@ bool CONVERTER::isExcludedProjectDirName( const std::string& aName ) const
 }
 
 
-std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const std::filesystem::path& aInput,
-                                                            const std::filesystem::path& aOutput,
+std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const FS::path& aInput,
+                                                            const FS::path& aOutput,
                                                             const std::string& aTarget ) const
 {
-    std::filesystem::path src = std::filesystem::absolute( aInput );
-    std::filesystem::path dest = std::filesystem::absolute( aOutput );
+    FS::path src = FS::absolute( aInput );
+    FS::path dest = FS::absolute( aOutput );
 
     if( src == dest )
         throw std::runtime_error( "output directory must differ from input directory" );
@@ -1993,13 +1990,13 @@ std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const std::filesyste
     std::vector<PROJECT_COPY_ENTRY> copied;
     int targetMajor = TargetMajorVersion( aTarget );
 
-    std::filesystem::recursive_directory_iterator it( src );
-    const std::filesystem::recursive_directory_iterator end;
+    FS::recursive_directory_iterator it( src );
+    const FS::recursive_directory_iterator end;
 
     for( ; it != end; ++it )
     {
-        const std::filesystem::directory_entry& entry = *it;
-        std::filesystem::path rel = std::filesystem::relative( entry.path(), src );
+        const FS::directory_entry& entry = *it;
+        FS::path rel = FS::relative( entry.path(), src );
 
         if( entry.is_directory() )
         {
@@ -2024,22 +2021,22 @@ std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const std::filesyste
 
         if( isDocument && targetMajor > 5 && ext == ".dcm" )
         {
-            std::filesystem::path pairedLib = entry.path();
+            FS::path pairedLib = entry.path();
             pairedLib.replace_extension( ".lib" );
 
-            if( std::filesystem::exists( pairedLib ) )
+            if( FS::exists( pairedLib ) )
                 continue;
         }
 
-        std::filesystem::path out = dest / rel;
+        FS::path out = dest / rel;
 
         if( isDocument )
             out = withTargetFamilyExtension( out, aTarget );
 
-        std::filesystem::create_directories( out.parent_path() );
+        FS::create_directories( out.parent_path() );
 
         if( !isDocument )
-            std::filesystem::copy_file( entry.path(), out, std::filesystem::copy_options::overwrite_existing );
+            FS::copy_file( entry.path(), out, FS::copy_options::overwrite_existing );
 
         copied.push_back( PROJECT_COPY_ENTRY{ entry.path(), out, isDocument } );
     }
@@ -2048,11 +2045,11 @@ std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const std::filesyste
 }
 
 
-std::filesystem::path CONVERTER::versionedOutputPath( const std::filesystem::path& aPath,
+FS::path CONVERTER::versionedOutputPath( const FS::path& aPath,
                                                       const std::string& aTarget ) const
 {
     std::string label = TargetVersionSuffix( aTarget );
-    std::filesystem::path targetPath = withTargetFamilyExtension( aPath, aTarget );
+    FS::path targetPath = withTargetFamilyExtension( aPath, aTarget );
 
     if( label.empty() )
         return targetPath;
@@ -2066,7 +2063,7 @@ std::filesystem::path CONVERTER::versionedOutputPath( const std::filesystem::pat
 }
 
 
-void CONVERTER::writeReport( const std::filesystem::path& aPath,
+void CONVERTER::writeReport( const FS::path& aPath,
                              const std::vector<FILE_REPORT>& aReports ) const
 {
     WriteTextFile( aPath, FormatReportsJson( aReports ) );
@@ -2281,9 +2278,9 @@ int legacyVisibleItemId( const std::string& aName )
 }
 
 
-std::vector<int> legacyVisibleItemsFromSource( const std::filesystem::path& aSourcePath )
+std::vector<int> legacyVisibleItemsFromSource( const FS::path& aSourcePath )
 {
-    if( aSourcePath.empty() || !std::filesystem::exists( aSourcePath ) )
+    if( aSourcePath.empty() || !FS::exists( aSourcePath ) )
         return {};
 
     std::vector<int> result;
@@ -2337,9 +2334,9 @@ std::vector<int> legacyVisibleItemsFromSource( const std::filesystem::path& aSou
 }
 
 
-std::string visibleLayersFromSource( const std::filesystem::path& aSourcePath )
+std::string visibleLayersFromSource( const FS::path& aSourcePath )
 {
-    if( aSourcePath.empty() || !std::filesystem::exists( aSourcePath ) )
+    if( aSourcePath.empty() || !FS::exists( aSourcePath ) )
         return "";
 
     try
@@ -2380,9 +2377,9 @@ std::string normalizeLegacyVisibleLayers( const std::string& aValue )
 }
 
 
-void CONVERTER::ensureLegacyProjectLocalSettings( const std::filesystem::path& aPath,
+void CONVERTER::ensureLegacyProjectLocalSettings( const FS::path& aPath,
                                                   const std::string& aTargetSuffix,
-                                                  const std::filesystem::path& aSourcePath ) const
+                                                  const FS::path& aSourcePath ) const
 {
     // KiCad 6/7/8 expect numeric visible item IDs; newer string IDs hide many objects.
     int metaVersion = ( aTargetSuffix == "V6" || aTargetSuffix == "V7"
@@ -2453,14 +2450,14 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
     if( positional.size() != 2 )
         throw std::runtime_error( "convert requires input and output paths" );
 
-    std::filesystem::path input = positional[0];
-    std::filesystem::path output = versionedOutputPath( positional[1], target );
+    FS::path input = positional[0];
+    FS::path output = versionedOutputPath( positional[1], target );
 
     std::vector<FILE_REPORT> reports;
 
-    if( std::filesystem::is_directory( input ) || Lower( input.extension().string() ) == ".kicad_pro" )
+    if( FS::is_directory( input ) || Lower( input.extension().string() ) == ".kicad_pro" )
     {
-        std::filesystem::path srcDir = std::filesystem::is_directory( input ) ? input : input.parent_path();
+        FS::path srcDir = FS::is_directory( input ) ? input : input.parent_path();
         std::vector<PROJECT_COPY_ENTRY> copied = copyProjectTree( srcDir, output, target );
         std::vector<PROJECT_COPY_ENTRY> documents;
 
@@ -2470,88 +2467,8 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
                 documents.push_back( entry );
         }
 
-        if( documents.size() <= 1 )
-        {
-            for( const PROJECT_COPY_ENTRY& entry : documents )
-                reports.push_back( normalizeFile( entry.Source, entry.Output, target, false ) );
-        }
-        else
-        {
-            reports.resize( documents.size() );
-            std::vector<size_t> processOrder( documents.size() );
-
-            for( size_t i = 0; i < processOrder.size(); ++i )
-                processOrder[i] = i;
-
-            std::sort( processOrder.begin(), processOrder.end(),
-                       [&]( size_t aLeft, size_t aRight )
-                       {
-                           std::error_code leftError;
-                           std::error_code rightError;
-                           uintmax_t leftSize = std::filesystem::file_size( documents[aLeft].Source,
-                                                                             leftError );
-                           uintmax_t rightSize = std::filesystem::file_size( documents[aRight].Source,
-                                                                              rightError );
-
-                           if( leftError )
-                               leftSize = 0;
-
-                           if( rightError )
-                               rightSize = 0;
-
-                           return leftSize > rightSize;
-                       } );
-
-            std::atomic<size_t> nextIndex{ 0 };
-            std::mutex errorMutex;
-            std::exception_ptr firstError;
-            unsigned int hardwareThreads = std::thread::hardware_concurrency();
-            size_t preferredThreads = hardwareThreads == 0 ? 4 : std::max<size_t>( 2, hardwareThreads / 2 );
-            size_t workerCount = std::min<size_t>( documents.size(),
-                    std::min<size_t>( 4, preferredThreads ) );
-
-            std::vector<std::thread> workers;
-            workers.reserve( workerCount );
-
-            for( size_t worker = 0; worker < workerCount; ++worker )
-            {
-                workers.emplace_back(
-                        [&, target]()
-                        {
-                            while( true )
-                            {
-                                size_t orderIndex = nextIndex.fetch_add( 1 );
-
-                                if( orderIndex >= processOrder.size() )
-                                    return;
-
-                                size_t index = processOrder[orderIndex];
-
-                                try
-                                {
-                                    const PROJECT_COPY_ENTRY& entry = documents[index];
-                                    reports[index] = normalizeFile( entry.Source, entry.Output,
-                                                                    target, false );
-                                }
-                                catch( ... )
-                                {
-                                    std::lock_guard<std::mutex> lock( errorMutex );
-
-                                    if( !firstError )
-                                        firstError = std::current_exception();
-
-                                    return;
-                                }
-                            }
-                        } );
-            }
-
-            for( std::thread& worker : workers )
-                worker.join();
-
-            if( firstError )
-                std::rethrow_exception( firstError );
-        }
+        for( const PROJECT_COPY_ENTRY& entry : documents )
+            reports.push_back( normalizeFile( entry.Source, entry.Output, target, false ) );
 
         if( !quiet )
             printReportWarnings( reports );
@@ -2579,7 +2496,7 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
 
         if( targetMajor > 5 )
         {
-            std::set<std::filesystem::path> projectDirs;
+            std::set<FS::path> projectDirs;
 
             for( const PROJECT_COPY_ENTRY& entry : copied )
             {
@@ -2587,7 +2504,7 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
                     projectDirs.insert( entry.Output.parent_path() );
             }
 
-            for( const std::filesystem::path& projectDir : projectDirs )
+            for( const FS::path& projectDir : projectDirs )
             {
                 FILE_REPORT tableReport = ensureProjectLocalSymbolLibraryTable( projectDir, copied,
                                                                                 targetMajor );
@@ -2629,7 +2546,7 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
     }
     else
     {
-        if( std::filesystem::absolute( input ) == std::filesystem::absolute( output ) )
+        if( FS::absolute( input ) == FS::absolute( output ) )
             throw std::runtime_error( "output file must differ from input file" );
 
         reports.push_back( normalizeFile( input, output, target, !quiet ) );
@@ -2667,11 +2584,11 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
 }
 
 
-std::vector<FILE_REPORT> CONVERTER::inspectPath( const std::filesystem::path& aPath ) const
+std::vector<FILE_REPORT> CONVERTER::inspectPath( const FS::path& aPath ) const
 {
     std::vector<FILE_REPORT> reports;
 
-    if( !std::filesystem::is_directory( aPath ) && Lower( aPath.extension().string() ) != ".kicad_pro" )
+    if( !FS::is_directory( aPath ) && Lower( aPath.extension().string() ) != ".kicad_pro" )
     {
         DOCUMENT doc = loadDocument( aPath );
         FILE_REPORT report;
@@ -2686,11 +2603,12 @@ std::vector<FILE_REPORT> CONVERTER::inspectPath( const std::filesystem::path& aP
         return reports;
     }
 
-    std::filesystem::path root = std::filesystem::is_directory( aPath ) ? aPath : aPath.parent_path();
+    FS::path root = FS::is_directory( aPath ) ? aPath : aPath.parent_path();
 
-    for( const std::filesystem::directory_entry& entry :
-            std::filesystem::recursive_directory_iterator( root ) )
+    for( FS::recursive_directory_iterator it( root ), end; it != end; ++it )
     {
+        const FS::directory_entry& entry = *it;
+
         if( !entry.is_regular_file() || !isKiCadDocumentPath( entry.path() ) )
             continue;
 
@@ -2710,11 +2628,11 @@ std::vector<FILE_REPORT> CONVERTER::inspectPath( const std::filesystem::path& aP
 }
 
 
-std::vector<FILE_REPORT> CONVERTER::detectVersionsPath( const std::filesystem::path& aPath ) const
+std::vector<FILE_REPORT> CONVERTER::detectVersionsPath( const FS::path& aPath ) const
 {
     std::vector<FILE_REPORT> reports;
 
-    if( !std::filesystem::is_directory( aPath ) && Lower( aPath.extension().string() ) != ".kicad_pro" )
+    if( !FS::is_directory( aPath ) && Lower( aPath.extension().string() ) != ".kicad_pro" )
     {
         if( !isKiCadDocumentPath( aPath ) )
             return reports;
@@ -2727,11 +2645,11 @@ std::vector<FILE_REPORT> CONVERTER::detectVersionsPath( const std::filesystem::p
         return reports;
     }
 
-    std::filesystem::path root = std::filesystem::is_directory( aPath ) ? aPath : aPath.parent_path();
+    FS::path root = FS::is_directory( aPath ) ? aPath : aPath.parent_path();
 
-    for( std::filesystem::recursive_directory_iterator it( root ), end; it != end; ++it )
+    for( FS::recursive_directory_iterator it( root ), end; it != end; ++it )
     {
-        const std::filesystem::directory_entry& entry = *it;
+        const FS::directory_entry& entry = *it;
 
         if( entry.is_directory() )
         {

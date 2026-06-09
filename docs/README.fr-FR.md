@@ -128,58 +128,45 @@ kicad-backport-cplus/
 
 ## Construire
 
-Il ne reste que deux points d'entrée de compilation :
+There are two simple direct build entrypoints:
 
-- `build.ps1` pour les builds natifs Windows et les builds croisés Linux temporaires depuis Windows via WSL.
-- `build.sh` uniquement pour les builds natifs Linux/macOS.
+- `build.ps1` for Windows native MinGW/g++ builds.
+- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
 
-Build natif depuis un nouveau checkout :
+Native Linux/RPi/macOS build:
 
 ```sh
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-./build.sh --setup
 ./build.sh --config Release
 ```
 
-Sous Windows :
+Windows native MinGW/g++ build:
 
 ```powershell
 git clone <repo-url> kicad-backport-cplus
 cd kicad-backport-cplus
-.\build.ps1 -SetupMissingTools
-.\build.ps1 -Targets windows-amd64
+.\build.ps1
 ```
 
-Cibles Linux depuis Windows via WSL :
-
-```powershell
-.\build.ps1 -Targets linux-amd64,linux-arm64,linux-armhf
-```
-
-Options natives utiles :
+Useful native options:
 
 ```sh
 ./build.sh --clean
 ./build.sh --compiler g++-8
-./build.sh --direct
 ./build.sh --static-runtime off
 ```
 
-Les sorties sont copiées dans `dist/`. Le code actuel nécessite un support C++17 pour `filesystem`, `pmr` et `string_view`; la couche de compatibilité accepte les implémentations standard ou experimental, et les builds directs reviennent de `-std=c++17` à `-std=c++1z`.
+Outputs are copied to `dist/`. The current source requires C++17 support for
+newer standard-library filesystem, view-string, PMR, and memory-resource facilities; it uses a small project-owned path/directory API plus `std::string`. Direct builds fall back from `-std=c++17` to
+`-std=c++1z` when needed. Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
 
-Build CMake manuel :
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
-
-Build manuel sans CMake :
+Manual direct GCC build:
 
 ```sh
-./build.sh --config Release --target native --direct
+./build.sh --config Release --target native
 ```
+
 ## Remerciements
 
 Merci tout particulièrement à Hubert pour l'aide apportée pendant le développement
