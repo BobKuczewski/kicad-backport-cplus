@@ -1,204 +1,83 @@
-# Soporte KiCad C++
+# KiCad Backport C++
 
-Implementación independiente en C++17 de la CLI de degradación de KiCad Backport. la herramienta
-convierte archivos de proyecto KiCad S-expression más nuevos a formatos de archivo KiCad más antiguos
-al tiempo que se prefiere la sintaxis heredada equivalente a la eliminación.
+`kicad-backport` es un conversor de línea de comandos independiente implementado en C++ portable para mover proyectos y archivos KiCad a objetivos de formato más antiguos. Su prioridad es la compatibilidad del parser: cuando una versión antigua de KiCad tiene una representación equivalente, reescribe a esa representación; si no, elimina o aproxima la sintaxis no soportada y lo informa como warning.
 
-## Documentación localizada
+La implementación no depende de bibliotecas externas, incluye un pequeño parser/formatter S-expression estilo KiCad y puede usarse directamente o desde un plugin wrapper.
 
-- [简体中文](docs/README.zh-CN.md)
-- [日本語](docs/README.ja-JP.md)
-- [한국어](docs/README.ko-KR.md)
-- [Francés](docs/README.fr-FR.md)
-- [Deutsch](docs/README.de-DE.md)
-- [Español](docs/README.es-ES.md)
-- [Italiano](docs/README.it-IT.md)
+## Documentación
 
-Referencias adicionales:
-
-- [Diferencias de versión del formato de archivo KiCad](docs/kicad-file-format-version-differences.md)
-- [Diferencias de versión de formato de archivo localizado](docs/README.md#kicad-file-format-version-differences)
+- [Índice de documentación](README.md)
+- [Diferencias de formato del conversor](kicad-backport-converter-format-differences.es-ES.md)
+- [README en inglés](../README.md)
 
 ## Comandos
 
-La interfaz de línea de comando refleja la implementación de Go y está destinada a ser
-utilizable tanto directamente como desde el complemento de Python:
-
 ```text
-kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
+kicad-backport convert [--quiet] --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport detect-versions [--json] <input>
 kicad-backport version
 ```
 
-El convertidor lee archivos KiCad S-expression y aplica una degradación basada en la versión
-reglas, escribe una ruta de salida con sufijo de versión y puede copiar todo el proyecto KiCad
-directorios antes de normalizar todos los archivos KiCad en la copia. Durante la conversión,
-imprime la versión de origen detectada y la versión de destino resuelta para cada archivo
-KiCad. La salida de texto prefiere alias KiCad como `9.0 (20241229)` o
-`10.99-dev (20260513)` en lugar de números sin procesar del formato de archivo.
-`detect-versions` es un escaneo rápido de directorios que solo lee el texto necesario
-para informar tipos y versiones de archivos KiCad. La salida de texto usa los mismos alias,
-mientras que los informes JSON conservan las versiones sin procesar. Primero filtra por
-extensiones KiCad admitidas y omite los archivos cuya versión no puede identificarse.
-
-Ejemplos:
+Ejemplo:
 
 ```powershell
 .\dist\kicad-backport-windows-amd64.exe convert --target-version 9.0 E:\tmp\project E:\tmp\project_V9
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
-.\dist\kicad-backport-windows-amd64.exe detect-versions E:\tmp\project
+.\dist\kicad-backport-windows-amd64.exe detect-versions --json E:\tmp\project
 ```
 
-Los alias de versión admitidos son `4.0`, `5.0`, `5.1`, `6.0`, `7.0`, `8.0`,
-`9.0`, `10.0` y `10.99`. También se puede pasar una versión sin procesar del formato de
-archivo KiCad para probar un corte específico del analizador.
+`convert` acepta un documento KiCad o un directorio de proyecto. Un `.kicad_pro` convierte el directorio de proyecto que lo contiene. La salida recibe un sufijo de destino como `project_V9`.
 
-## Estado de soporte
+`inspect` informa tipo y versión detectados. `detect-versions` hace un escaneo ligero y puede emitir JSON.
 
-La implementación actual apunta a las familias de archivos KiCad 4 a KiCad 10:
+## Objetivos soportados
 
-| Objetivo | Estado |
+| Objetivo | Comportamiento actual |
 | --- | --- |
-| KiCad 10 | Elimina la sintaxis de desarrollo actual/posterior a 10.0, incluido el pad 20260521 `sim_electrical_type` y la celda de tabla 20260603 `knockout`. |
-| KiCad 10.99 | Objetivo de desarrollo actual para board/footprint: escribe la version `20260603`; las bibliotecas de simbolos y los esquemas aun usan las versiones objetivo de KiCad 10 (`20251024` / `20260306`). |
-| KiCad 9 | Elimina o degrada las características actuales de KiCad 10, como variantes, códigos de barras, retroperforación/postmecanizado, puentes y omisión de códigos de red. |
-| KiCad 8 | Elimina tablas KiCad 9+, archivos incrustados, clases de componentes, padstacks, pilas vía, áreas de reglas y formularios arbitrarios de capa de usuario. |
-| KiCad 7 | Aplica reescrituras de compatibilidad de analizadores anteriores para formularios UUID/tstamp, campos de huellas de PCB, lágrimas, objetos generados, imágenes y cuadros de texto. |
-| KiCad 6 | El soporte básico para la degradación de archivos está prácticamente completo. Los proyectos de prueba convertidos se abrieron manualmente en la aplicación KiCad 6 real para su validación. |
-| KiCad 5 | Admite la versión de destino board/footprint `20171130` y la importación/exportación básica de archivos legacy `.sch`, `.lib`, `.dcm` y `.pro`. Los objetos detallados de esquema, primitivas gráficas de símbolos y pines siguen siendo conversiones con pérdida y se informan con advertencias. |
-| KiCad 4 | Admite la versión de destino board/footprint `4`, la reescritura de encabezados legacy V4 para esquemas/bibliotecas y sufijos/extensiones de salida V4. Las funciones PCB exclusivas de V5, como pads personalizados, se simplifican cuando es posible. |
+| KiCad 10.99 | Alias de desarrollo. Board/footprint escriben `20260603`; schematic/symbol-library mantienen los anchors KiCad 10. |
+| KiCad 10 | Elimina o reescribe sintaxis de desarrollo fuera de los anchors `10.0`. |
+| KiCad 9 | Elimina o baja variants, barcodes, backdrill/post-machining, jumper pad metadata y referencias board solo por net name. |
+| KiCad 8 | Elimina o reescribe KiCad 9+ tables, embedded files/fonts, component classes, padstacks, via stacks, rule/placement areas, user-layer type qualifiers y font face fields. |
+| KiCad 7 | Aplica compatibilidad para UUID/tstamp, PCB footprint fields, teardrops, generated objects, images, text boxes y stroke/dimension syntax. |
+| KiCad 6 | Objetivo de la primera familia moderna schematic/symbol/project con estructuras de compatibilidad necesarias. |
+| KiCad 5.0/5.1 | Board/footprint usan `20171130`; schematic, symbol-library y project escriben legacy `.sch`, `.lib/.dcm`, `.pro`. |
+| KiCad 4 | Board/footprint usan `4`; se reescriben headers legacy V4 y se simplifican constructs PCB KiCad 5+ cuando es posible. |
 
-## Política de degradación
+Véanse las [diferencias de formato](kicad-backport-converter-format-differences.es-ES.md).
 
-El convertidor aplica la representación más compatible disponible en el
-formato de destino:
+## Política de conversión
 
-- Los nuevos objetos o campos se asignan a una sintaxis equivalente más antigua cuando es posible.
-- La información visible/de fabricación se guarda donde el formato antiguo pueda expresarla.
-- La sintaxis no compatible se elimina sólo cuando los analizadores KiCad más antiguos no pueden cargarla o
-el formato de archivo más antiguo no tiene representación equivalente.
-- Cada eliminación o reescritura de compatibilidad se informa como una advertencia.
+- Preserva la intención existente cuando el formato objetivo puede representarla.
+- Reescribe a sintaxis antigua equivalente cuando existe.
+- Elimina solo lo que los parsers antiguos no pueden leer o no tiene equivalente.
+- Los cambios con pérdida y eliminaciones se emiten como warning.
+- Los upgrades no crean funciones KiCad ausentes en la fuente.
 
-Por ejemplo, los códigos de red heredados se reconstruyen para formatos de PCB antiguos, booleanos más nuevos
-las formas de campo se convierten en átomos de presencia cuando sea necesario, KiCad 7 PCB
-Las dimensiones se conservan como gráficos visibles y tablero local del proyecto heredado.
-Los archivos de visibilidad se generan para objetivos KiCad 6/7/8.
+La frontera KiCad 5/6 cambia familias de archivos: `.sch -> .kicad_sch`, `.lib/.dcm -> .kicad_sym`, `.pro -> .kicad_pro`, y al revés `.kicad_sch -> .sch`, `.kicad_sym -> .lib + .dcm`, `.kicad_pro -> .pro`.
 
-Al convertir un directorio de proyecto o `.kicad_pro`, la herramienta solo copia
-Entradas KiCad editables y archivos de modelos 3D locales comunes. Fabricación generada
-Se omiten las salidas, las carpetas de historial/copia de seguridad, los Gerbers, las listas de materiales y los archivos temporales.
-Al cruzar el límite KiCad 5/6, las extensiones se cambian automáticamente según sea necesario,
-por ejemplo `.sch -> .kicad_sch`, `.lib -> .kicad_sym`, `.kicad_sch -> .sch`,
-`.kicad_sym -> .lib/.dcm` y `.kicad_pro -> .pro`.
+## Conversión de proyecto
 
-## Diseño del proyecto
+Para directorios de proyecto, el conversor copia solo entradas KiCad editables y modelos 3D locales comunes, y luego convierte los documentos copiados. Omite outputs de fabricación, backups, history, Gerbers, BOM, directorios plot/export y temporales.
 
-El código está dividido por responsabilidad para que se puedan agregar versiones posteriores de KiCad con
-pequeños cambios localizados:
+Las reparaciones incluyen `sym-lib-table` / `fp-lib-table`, `.kicad_prl` para KiCad 6/7/8, símbolos locales embebidos en `lib_symbols` y reconstrucción de hierarchy instances.
 
-- `src/kicad_backport.cpp`: flujo CLI, copia/filtrado de proyectos, conversión de archivos.
-- `src/kicad_backport_document.cpp`: Detección del tipo de documento KiCad.
-- `src/kicad_backport_legacy.cpp`: ayudantes para leer/escribir archivos KiCad legacy `.sch`, `.lib`, `.dcm` y `.pro`.
-- `src/kicad_backport_pathmap.cpp`: ayudantes de mapeo de extensión de archivo de destino.
-- `src/kicad_backport_report.cpp`: formato de informe JSON.
-- `src/kicad_backport_rules.cpp`: puertas de versión y orden de reglas de degradación.
-- `src/kicad_backport_rule_rewriters.cpp`: Ayudantes de reescritura del árbol de expresión S.
-- `src/kicad_backport_upgrade.cpp`: normalización de sintaxis limitada para archivos fuente más antiguos.
-- `src/kicad_backport_versions.cpp`: alias de lanzamiento de KiCad y versiones de formato.
-- `src/kicad_backport_util.cpp`: cadena compartida, archivo y ayudantes JSON.
-- `src/sexpr.cpp`: analizador/formateador de expresión S mínimo estilo KiCad.
-- `src/internal/`: encabezados de implementación privados utilizados solo por archivos fuente.
-- `include/kicad_backport/`: encabezados de proyecto públicos utilizados por el ejecutable.
-
-Las reglas de degradación de acción única utilizan un pequeño ayudante `applyWhen()` en lugar de
-`std::function`, manteniendo las reglas compactas sin agregar asignaciones de montón.
-Las reglas de acción múltiple permanecen agrupadas al ordenar los asuntos.
-
-La estructura de nivel superior es intencionalmente simple:
-
-```text
-kicad-backport-cplus/
-  include/kicad_backport/   public headers
-  src/                      implementation files
-  src/internal/             private headers
-  build/                    generated build trees
-  dist/                     packaged command-line binaries
-```
-
-## Construir
-
-There are two simple direct build entrypoints:
-
-- `build.ps1` for Windows native MinGW/g++ builds.
-- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
-
-Native Linux/RPi/macOS build:
-
-```sh
-git clone <repo-url> kicad-backport-cplus
-cd kicad-backport-cplus
-./build.sh --config Release
-```
-
-Windows native MinGW/g++ build:
+## Build
 
 ```powershell
-git clone <repo-url> kicad-backport-cplus
-cd kicad-backport-cplus
 .\build.ps1
 ```
 
-Useful native options:
-
 ```sh
-./build.sh --clean
-./build.sh --compiler g++-8
-./build.sh --static-runtime off
+./build.sh
 ```
 
-Outputs are copied to `dist/`. The current source requires C++17 support for
-newer standard-library filesystem, view-string, PMR, and memory-resource facilities; it uses a small project-owned path/directory API plus `std::string`. Direct builds fall back from `-std=c++17` to
-`-std=c++1z` when needed. Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
-
-Manual direct GCC build:
-
-```sh
-./build.sh --config Release --target native
-```
-
-## Agradecimientos
-
-Un agradecimiento especial a Hubert por la ayuda proporcionada durante el desarrollo
-de este proyecto.
+Los scripts leen `kicad_backport_sources.txt`, compilan con `g++` o `clang++` y copian el ejecutable a `dist/`. Si hace falta, usan fallback de `-std=c++17` a `-std=c++1z`.
 
 ## Validación
 
-Después de la conversión, valide cada objetivo con la versión de KiCad correspondiente. Para
-KiCad 9/8/10 esto generalmente significa ejecutar ERC esquemático y PCB DRC:
+Después de convertir, abrir con la versión KiCad objetivo y ejecutar ERC/DRC cuando corresponda. Revisar los warnings antes de uso en producción.
 
-```powershell
-& 'D:\KiCad\9.0\bin\kicad-cli.exe' sch erc --output erc.rpt project.kicad_sch
-& 'D:\KiCad\9.0\bin\kicad-cli.exe' pcb drc --output drc.rpt project.kicad_pcb
-```
+## Agradecimientos
 
-KiCad 7 CLI tiene un conjunto de comandos más pequeño, así que use netlist y Gerber export para
-verifique que se carguen los archivos de PCB y esquemas convertidos:
-
-```powershell
-& 'D:\KiCad\7.0\bin\kicad-cli.exe' sch export netlist --output netlist.net project.kicad_sch
-& 'D:\KiCad\7.0\bin\kicad-cli.exe' pcb export gerbers --output gerbers project.kicad_pcb
-```
-
-KiCad 6 tiene una cobertura de validación CLI limitada. Para archivos PCB, una comprobación rápida del analizador
-se puede hacer a través del módulo Python de KiCad 6:
-
-```powershell
-& 'D:\KiCad\6.0\bin\python.exe' -c "import pcbnew; pcbnew.LoadBoard(r'E:\tmp\project_V6\project.kicad_pcb'); print('pcb ok')"
-```
-
-Para los esquemas y símbolos de KiCad 6, la apertura manual de la GUI sigue siendo la más útil
-validación de un extremo a otro. Las muestras de regresión V6 actuales se han comprobado de esta manera.
-
-Las violaciones de ERC/DRC son hallazgos de las reglas de diseño del proyecto. ellos no son
-fallas de conversión de formato a menos que KiCad informe un error de carga o análisis.
+Un agradecimiento especial a Hubert por la ayuda prestada durante el desarrollo de este proyecto.

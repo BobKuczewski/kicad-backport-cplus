@@ -1,203 +1,83 @@
-# KiCad バックポート C++
+# KiCad Backport C++
 
-KiCad バックポート ダウングレード CLI のスタンドアロン C++17 実装。ツール
-新しい KiCad S-expression プロジェクト ファイルを古い KiCad ファイル形式に変換します
-ただし、削除よりも同等の従来の構文が優先されます。
+`kicad-backport` は、portable C++ で実装された独立した CLI converter で、KiCad のプロジェクトやファイルを古い KiCad ファイルフォーマットターゲットへ変換します。目的は parser compatibility です。古い KiCad に等価表現がある場合はその表現へ書き換え、等価表現がない場合は未対応構文を削除または近似し、warning として報告します。
 
-## ローカライズされたドキュメント
+実装は dependency-free で、小さな KiCad 風 S-expression parser/formatter を内蔵しており、直接実行または plugin wrapper から利用できます。
 
-- [简体中文](docs/README.zh-CN.md)
-- [日本語](docs/README.ja-JP.md)
-- [한국어](docs/README.ko-KR.md)
-- [フランス語](docs/README.fr-FR.md)
-- [ドイツ語](docs/README.de-DE.md)
-- [スペイン語](docs/README.es-ES.md)
-- [イタリア語](docs/README.it-IT.md)
+## ドキュメント
 
-追加の参考資料:
-
-- [KiCad ファイル形式のバージョンの違い](docs/kicad-file-format-version-differences.md)
-- [ローカライズされたファイル形式のバージョンの違い](docs/README.md#kicad-file-format-version-differences)
+- [Documentation index](README.md)
+- [KiCad backport converter format differences](kicad-backport-converter-format-differences.ja-JP.md)
+- [English README](../README.md)
 
 ## コマンド
 
-コマンド ライン インターフェイスは Go の実装を反映しており、
-直接と Python プラグインからの両方で使用できます。
-
 ```text
-kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
+kicad-backport convert [--quiet] --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport detect-versions [--json] <input>
 kicad-backport version
 ```
-
-コンバーターは KiCad S-expression ファイルを読み取り、バージョン主導のダウングレードを適用します
-ルールを作成し、バージョン接尾辞付きの出力パスを書き込み、KiCad プロジェクト全体をコピーできます
-コピー内のすべての KiCad ファイルを正規化する前に、ディレクトリを削除します。変換中は、
-各 KiCad ファイルについて検出したソースファイル version と解決したターゲット version を出力します。
-人向けのテキスト出力では、生のファイル形式番号ではなく `9.0 (20241229)` や
-`10.99-dev (20260513)` のような KiCad alias を優先します。`detect-versions` は高速な
-ディレクトリスキャンで、KiCad 関連ファイルの種類と version を報告するのに必要な分だけ
-ファイルテキストを読みます。テキスト出力は同じ alias 表示を使い、JSON report は生の
-ファイル形式 version を保持します。まずサポート対象の KiCad 拡張子でフィルタし、version を
-識別できないファイルは出力しません。
 
 例:
 
 ```powershell
 .\dist\kicad-backport-windows-amd64.exe convert --target-version 9.0 E:\tmp\project E:\tmp\project_V9
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
-.\dist\kicad-backport-windows-amd64.exe detect-versions E:\tmp\project
+.\dist\kicad-backport-windows-amd64.exe detect-versions --json E:\tmp\project
 ```
 
-サポートされているリリース エイリアスは、`4.0`、`5.0`、`5.1`、`6.0`、`7.0`、
-`8.0`、`9.0`、`10.0`、および `10.99` です。特定のパーサー境界をテストする場合は、
-KiCad ファイル形式の生のバージョン番号も渡せます。
+`convert` は単一 KiCad document または project directory を受け取ります。`.kicad_pro` を渡すと、その親 project directory を変換します。出力 path には `project_V9` のように target suffix が追加されます。
 
-## サポート状況
+`inspect` は検出された file kind と version を報告します。`detect-versions` は file/directory を軽量 scan し、対応 KiCad document kind を報告し、JSON も出力できます。
 
-現在の実装は、KiCad 4 から KiCad 10 までのファイル ファミリを対象としています。
+## 対応ターゲット
 
-| ターゲット | 状態 |
+| Target | 現在の動作 |
 | --- | --- |
-| KiCad 10 | 20260521 パッド `sim_electrical_type` および 20260603 テーブルセル `knockout` を含む、10.0 後/現在の開発構文を削除します。 |
-| KiCad 10.99 | 現在の開発版 board/footprint ターゲットです。board と footprint は `20260603` を書き、symbol library と schematic は KiCad 10 ターゲット版（`20251024` / `20260306`）を引き続き使用します。 |
-| KiCad9 | バリアント、バーコード、バックドリル/ポストマシニング、ジャンパー パッド、ネットコード省略などの KiCad 10/現在の​​機能を削除またはダウングレードします。 |
-| KiCad8 | KiCad 9+ テーブル、埋め込みファイル、コンポーネント クラス、パッドスタック、ビア スタック、ルール領域、および任意のユーザー層フォームを削除します。 |
-| KiCad7 | UUID/tstamp フォーム、PCB フットプリント フィールド、ティアドロップ、生成されたオブジェクト、イメージ、およびテキスト ボックスに古いパーサー互換性の書き換えを適用します。 |
-| KiCad 6 | 基本的なファイルのダウングレードのサポートはほぼ完了しました。変換されたテスト プロジェクトは、検証のために実際の KiCad 6 アプリケーションで手動で開かれました。 |
-| KiCad 5 | board/footprint のターゲット version `20171130` と、legacy `.sch`、`.lib`、`.dcm`、`.pro` の基本的な import/export をサポートします。詳細な schematic オブジェクト、symbol 描画プリミティブ、pin はまだロッシーで、warning として報告されます。 |
-| KiCad 4 | board/footprint のターゲット version `4`、V4 legacy schematic/library ヘッダーの書き換え、V4 出力 suffix/extension をサポートします。custom pad などの V5-only PCB 機能は可能な範囲で簡略化されます。 |
+| KiCad 10.99 | 開発 alias。board/footprint は `20260603`、schematic/symbol-library は KiCad 10 anchor のままです。 |
+| KiCad 10 | `10.0` target anchor に含まれない開発構文を削除または書き換えます。 |
+| KiCad 9 | variants、barcodes、backdrill/post-machining、jumper pad metadata、net-name-only board references など KiCad 10 時代の機能を削除または downgrade します。 |
+| KiCad 8 | KiCad 9+ tables、embedded files/fonts、component classes、padstacks、via stacks、rule/placement areas、user-layer type qualifiers、font face fields を削除または書き換えます。 |
+| KiCad 7 | UUID/tstamp、PCB footprint fields、teardrops、generated objects、images、text boxes、stroke/dimension syntax の互換処理を行います。 |
+| KiCad 6 | 最初の modern schematic/symbol/project family を target とし、必要な KiCad 6 parser compatibility structures を追加します。 |
+| KiCad 5.0/5.1 | board/footprint は `20171130`。schematic、symbol-library、project は legacy `.sch`、`.lib/.dcm`、`.pro` を出力します。 |
+| KiCad 4 | board/footprint は `4`。V4 legacy schematic/library header を書き換え、KiCad 5+ PCB construct を可能な範囲で簡略化します。 |
 
-## ダウングレードポリシー
+詳細は [format differences](kicad-backport-converter-format-differences.ja-JP.md) を参照してください。
 
-コンバーターは、使用可能な最も互換性のある表現を適用します。
-ターゲットフォーマット:
+## 変換方針
 
-- 新しいオブジェクトまたはフィールドは、可能な場合は古い同等の構文にマップされます。
-- 可視/製造情報は、古い形式で表現できる場所に保持されます。
-- サポートされていない構文は、古い KiCad パーサーがそれをロードできない場合、または
-古いファイル形式には同等の表現がありません。
-- 削除または互換性の書き換えはそれぞれ、警告として報告されます。
+- target format が表現できる既存の設計意図を保持します。
+- 等価な古い構文がある場合は、その構文へ書き換えます。
+- 古い KiCad parser が読めない、または旧 format に等価表現がない場合のみ削除します。
+- 損失を伴う rewrite と削除は warning として出力します。
+- upgrade は保守的で、source に存在しない KiCad feature を作りません。
 
-たとえば、レガシー ネット コードは古い PCB フォーマット、新しいブール値用に再構築されます。
-フィールド フォームは必要に応じてプレゼンス アトムに変換されます。KiCad 7 PCB
-寸法は表示可能なグラフィックスとして保存され、レガシー プロジェクト ローカル ボードとして保存されます。
-可視性ファイルは KiCad 6/7/8 ターゲット用に生成されます。
+KiCad 5/6 境界では file family が切り替わります: `.sch -> .kicad_sch`、`.lib/.dcm -> .kicad_sym`、`.pro -> .kicad_pro`、および逆方向の `.kicad_sch -> .sch`、`.kicad_sym -> .lib + .dcm`、`.kicad_pro -> .pro`。
 
-プロジェクト ディレクトリまたは `.kicad_pro` を変換する場合、ツールはコピーのみを行います。
-編集可能な KiCad 入力と共通のローカル 3D モデル ファイル。生成されたものづくり
-出力、履歴/バックアップ フォルダー、ガーバー、BOM、および一時ファイルはスキップされます。
-KiCad 5/6 の境界をまたぐ場合、必要に応じて拡張子も自動的に変更します。
-例: `.sch -> .kicad_sch`、`.lib -> .kicad_sym`、`.kicad_sch -> .sch`、
-`.kicad_sym -> .lib/.dcm`、`.kicad_pro -> .pro`。
+## Project conversion
 
-## プロジェクトのレイアウト
+project directory 変換では、編集可能な KiCad input と一般的な local 3D model file のみをコピーし、コピー内の KiCad document を変換します。manufacturing output、backup、history、Gerbers、BOM、plot/export directory、temporary file は skip します。
 
-コードは責任ごとに分割されているため、新しい KiCad バージョンを追加できます。
-小規模で局所的な変更:
+project-level repair には `sym-lib-table` / `fp-lib-table` の正規化、KiCad 6/7/8 向け `.kicad_prl` visibility data、KiCad 6+ 向け project-local schematic symbols の embed、schematic hierarchy instances の再構築が含まれます。
 
-- `src/kicad_backport.cpp`: CLI フロー、プロジェクトのコピー/フィルタリング、ファイル変換。
-- `src/kicad_backport_document.cpp`: KiCad ドキュメントの種類の検出。
-- `src/kicad_backport_legacy.cpp`: legacy KiCad `.sch`、`.lib`、`.dcm`、`.pro` の読み書きヘルパー。
-- `src/kicad_backport_pathmap.cpp`: ターゲット ファイル拡張子マッピング ヘルパー。
-- `src/kicad_backport_report.cpp`: JSON レポートの形式。
-- `src/kicad_backport_rules.cpp`: バージョン ゲートとダウングレード ルールの順序。
-- `src/kicad_backport_rule_rewriters.cpp`: S 式ツリー書き換えヘルパー。
-- `src/kicad_backport_upgrade.cpp`: 古いソース ファイルの構文正規化が制限されています。
-- `src/kicad_backport_versions.cpp`: KiCad リリースのエイリアスと形式のバージョン。
-- `src/kicad_backport_util.cpp`: 共有文字列、ファイル、および JSON ヘルパー。
-- `src/sexpr.cpp`: 最小限の KiCad スタイルの S 式パーサー/フォーマッタ。
-- `src/internal/`: ソース ファイルによってのみ使用されるプライベート実装ヘッダー。
-- `include/kicad_backport/`: 実行可能ファイルによって使用されるパブリック プロジェクト ヘッダー。
-
-シングルアクションのダウングレード ルールは、代わりに小さな `applyWhen()` ヘルパーを使用します。
-`std::function`、ヒープ割り当てを追加せずにルールをコンパクトに保ちます。
-マルチアクション ルールは、順序付け時にグループ化されたままになります。
-
-トップレベルの構造は意図的に単純になっています。
-
-```text
-kicad-backport-cplus/
-  include/kicad_backport/   public headers
-  src/                      implementation files
-  src/internal/             private headers
-  build/                    generated build trees
-  dist/                     packaged command-line binaries
-```
-
-## ビルド
-
-There are two simple direct build entrypoints:
-
-- `build.ps1` for Windows native MinGW/g++ builds.
-- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
-
-Native Linux/RPi/macOS build:
-
-```sh
-git clone <repo-url> kicad-backport-cplus
-cd kicad-backport-cplus
-./build.sh --config Release
-```
-
-Windows native MinGW/g++ build:
+## Build
 
 ```powershell
-git clone <repo-url> kicad-backport-cplus
-cd kicad-backport-cplus
 .\build.ps1
 ```
 
-Useful native options:
-
 ```sh
-./build.sh --clean
-./build.sh --compiler g++-8
-./build.sh --static-runtime off
+./build.sh
 ```
 
-Outputs are copied to `dist/`. The current source requires C++17 support for
-newer standard-library filesystem, view-string, PMR, and memory-resource facilities; it uses a small project-owned path/directory API plus `std::string`. Direct builds fall back from `-std=c++17` to
-`-std=c++1z` when needed. Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
+scripts は `kicad_backport_sources.txt` を読み、`g++` または `clang++` で compile し、実行ファイルを `dist/` にコピーします。必要に応じて `-std=c++17` から `-std=c++1z` へ fallback します。
 
-Manual direct GCC build:
+## Validation
 
-```sh
-./build.sh --config Release --target native
-```
+変換後は target KiCad version で開き、必要な ERC/DRC を実行してください。converter warning は production use 前に確認してください。
 
 ## 謝辞
 
-このプロジェクトの開発中に支援してくれた Hubert に特別な感謝を表します。
-
-## 検証
-
-変換後、一致する KiCad バージョンで各ターゲットを検証します。のために
-KiCad 8/9/10 これは通常、回路図 ERC および PCB DRC を実行することを意味します。
-
-```powershell
-& 'D:\KiCad\9.0\bin\kicad-cli.exe' sch erc --output erc.rpt project.kicad_sch
-& 'D:\KiCad\9.0\bin\kicad-cli.exe' pcb drc --output drc.rpt project.kicad_pcb
-```
-
-KiCad 7 CLI のコマンド セットは小さいため、ネットリストとガーバー エクスポートを使用して
-変換された回路図ファイルと PCB ファイルが読み込まれることを確認します。
-
-```powershell
-& 'D:\KiCad\7.0\bin\kicad-cli.exe' sch export netlist --output netlist.net project.kicad_sch
-& 'D:\KiCad\7.0\bin\kicad-cli.exe' pcb export gerbers --output gerbers project.kicad_pcb
-```
-
-KiCad 6 の CLI 検証範囲は限られています。 PCB ファイルの場合、簡単なパーサー チェック
-KiCad 6 の Python モジュールを通じて実行できます。
-
-```powershell
-& 'D:\KiCad\6.0\bin\python.exe' -c "import pcbnew; pcbnew.LoadBoard(r'E:\tmp\project_V6\project.kicad_pcb'); print('pcb ok')"
-```
-
-KiCad 6 の回路図とシンボルの場合、手動で GUI を開くことが依然として最も便利です
-エンドツーエンドの検証。現在の V6 回帰サンプルはこの方法でチェックされています。
-
-ERC/DRC 違反は、プロジェクトからの設計ルールの発見です。そうではありません
-KiCad がロードまたは解析エラーを報告しない限り、フォーマット変換は失敗します。
+本プロジェクトの開発にあたり支援をいただいた Hubert に深く感謝します。

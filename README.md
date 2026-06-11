@@ -1,174 +1,94 @@
 # KiCad Backport C++
 
-Standalone C++17 implementation of the KiCad Backport downgrade CLI. The tool
-converts newer KiCad S-expression project files to older KiCad file formats
-while preferring equivalent legacy syntax over deletion.
+`kicad-backport` is a standalone command-line converter implemented in portable C++ for moving KiCad projects and files to older KiCad file-format targets. It focuses on parser compatibility: when an older KiCad version has an equivalent representation, the converter rewrites to that representation; when it does not, the unsupported syntax is removed or approximated and reported as a warning.
 
-## Localized Documentation
+The implementation is dependency-free, uses a small KiCad-style S-expression parser/formatter, and can be used directly or from a plugin wrapper.
 
-- [简体中文](docs/README.zh-CN.md)
-- [日本語](docs/README.ja-JP.md)
-- [한국어](docs/README.ko-KR.md)
-- [Français](docs/README.fr-FR.md)
-- [Deutsch](docs/README.de-DE.md)
-- [Español](docs/README.es-ES.md)
-- [Italiano](docs/README.it-IT.md)
+## Documentation
 
-Additional references:
-
-- [KiCad file format version differences](docs/kicad-file-format-version-differences.md)
-- [Localized file format version differences](docs/README.md#kicad-file-format-version-differences)
+- [Documentation index](docs/README.md)
+- [KiCad backport converter format differences](docs/kicad-backport-converter-format-differences.md)
+- Localized README files: [简体中文](docs/README.zh-CN.md), [日本語](docs/README.ja-JP.md), [한국어](docs/README.ko-KR.md), [Français](docs/README.fr-FR.md), [Deutsch](docs/README.de-DE.md), [Español](docs/README.es-ES.md), [Italiano](docs/README.it-IT.md)
 
 ## Commands
 
-The command line interface mirrors the Go implementation and is intended to be
-usable both directly and from the Python plugin:
-
 ```text
-kicad-backport convert --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
+kicad-backport convert [--quiet] --target-version <4.0|5.0|5.1|6.0|7.0|8.0|9.0|10.0|10.99|number> [--report report.json] <input> <output>
 kicad-backport inspect <input>
 kicad-backport detect-versions [--json] <input>
 kicad-backport version
 ```
-
-The converter reads KiCad S-expression files, applies version-driven downgrade
-rules, writes a version-suffixed output path, and can copy whole KiCad project
-directories before normalizing all KiCad files in the copy. During conversion,
-it prints the detected source file version and resolved target file version for
-each converted KiCad file, preferring KiCad aliases such as `9.0 (20241229)` or
-`10.99-dev (20260513)` over raw file-format numbers in human-readable output.
-`detect-versions` is a fast directory scan that reads only enough file text to
-report KiCad-related file kinds and versions. Its text output uses the same
-alias display while JSON reports keep raw file-format versions. It first filters
-by supported KiCad file extensions and omits files whose versions cannot be
-identified.
 
 Examples:
 
 ```powershell
 .\dist\kicad-backport-windows-amd64.exe convert --target-version 9.0 E:\tmp\project E:\tmp\project_V9
 .\dist\kicad-backport-windows-amd64.exe inspect E:\tmp\project
-.\dist\kicad-backport-windows-amd64.exe detect-versions E:\tmp\project
+.\dist\kicad-backport-windows-amd64.exe detect-versions --json E:\tmp\project
 ```
 
-Supported release aliases are `4.0`, `5.0`, `5.1`, `6.0`, `7.0`, `8.0`,
-`9.0`, `10.0`, and `10.99`. A raw KiCad file format version number can also be passed
-when testing a specific parser cutoff.
+`convert` accepts either a single KiCad document or a project directory. Passing a `.kicad_pro` also converts the containing project directory. The output path is suffixed by target family, for example `project_V9`, unless the suffix is already present.
 
-## Support Status
+`inspect` reports the detected file kind and version. `detect-versions` performs a lightweight scan over a file or directory, reports supported KiCad document kinds, and can emit JSON for automation.
 
-The current implementation targets KiCad 4 through KiCad 10 file families:
+## Supported Targets
 
-| Target | Status |
+| Target | Current behavior |
 | --- | --- |
-| KiCad 10 | Removes post-10.0/current-development syntax, including 20260521 pad `sim_electrical_type` and 20260603 table-cell `knockout`. |
-| KiCad 10.99 | Current-development board/footprint target: writes board and footprint version `20260603`; symbol libraries and schematics still use KiCad 10 target versions (`20251024` / `20260306`). |
-| KiCad 9 | Removes or downgrades KiCad 10/current features such as variants, barcodes, backdrill/post-machining, jumper pads, and netcode omission. |
-| KiCad 8 | Removes KiCad 9+ tables, embedded files, component classes, padstacks, via stacks, rule areas, and arbitrary user-layer forms. |
-| KiCad 7 | Applies older parser compatibility rewrites for UUID/tstamp forms, PCB footprint fields, teardrops, generated objects, images, and text boxes. |
-| KiCad 6 | Basic file downgrade support is largely complete. Converted test projects have been manually opened in the actual KiCad 6 application for validation. |
-| KiCad 5 | Supports board/footprint target version `20171130` and basic legacy `.sch`, `.lib`, `.dcm`, and `.pro` import/export with deterministic output paths. Detailed schematic objects, symbol drawing primitives, and pins are still lossy and reported with warnings. |
-| KiCad 4 | Supports board/footprint target version `4`, V4 legacy schematic/library header rewrites, and V4 output suffixes/extensions. V5-only PCB features such as custom pads are simplified where possible. |
+| KiCad 10.99 | Development alias. Board and footprint targets write `20260603`; schematic and symbol-library targets remain at the KiCad 10 anchors. |
+| KiCad 10 | Removes or rewrites newer development syntax that is not part of the `10.0` target anchors. |
+| KiCad 9 | Removes or downgrades KiCad 10-era features such as variants, barcodes, backdrill/post-machining fields, jumper pad metadata, and net-name-only board references. |
+| KiCad 8 | Removes or rewrites KiCad 9+ tables, embedded files/fonts, component classes, padstacks, via stacks, rule/placement areas, arbitrary user-layer type qualifiers, and font face fields. |
+| KiCad 7 | Applies KiCad 7 parser compatibility for UUID/tstamp forms, PCB footprint fields, teardrops, generated objects, images, text boxes, and stroke/dimension syntax. |
+| KiCad 6 | Targets the first modern schematic/symbol/project file family and adds KiCad 6 parser compatibility structures where required. |
+| KiCad 5.0/5.1 | Uses board/footprint version `20171130` and writes legacy `.sch`, `.lib/.dcm`, and `.pro` for schematic, symbol-library, and project targets. |
+| KiCad 4 | Uses board/footprint version `4`, rewrites V4 legacy schematic/library headers, and simplifies KiCad 5+ PCB constructs where possible. |
 
-## Downgrade Policy
+The per-file version anchors and conversion details are documented in [KiCad backport converter format differences](docs/kicad-backport-converter-format-differences.md).
 
-The converter applies the most compatible representation available in the
-target format:
+## Conversion Policy
 
-- New objects or fields are mapped to older equivalent syntax when possible.
-- Visible/manufacturing information is kept where the old format can express it.
-- Unsupported syntax is removed only when older KiCad parsers cannot load it or
-  the older file format has no equivalent representation.
-- Each removal or compatibility rewrite is reported as a warning.
+The converter prefers compatibility over textual preservation:
 
-For example, legacy net codes are rebuilt for old PCB formats, newer boolean
-field forms are converted to presence atoms where needed, KiCad 7 PCB
-dimensions are preserved as visible graphics, and legacy project-local board
-visibility files are generated for KiCad 6/7/8 targets.
+- Existing intent is preserved when the target format can represent it.
+- Newer syntax is rewritten to older equivalent syntax when one exists.
+- Unsupported nodes and fields are removed only when older KiCad parsers cannot read them or no equivalent representation exists.
+- Lossy rewrites and removals are emitted as warnings.
+- Upgrades are conservative: the converter does not invent new KiCad design features that are absent from the source file.
 
-When converting a project directory or `.kicad_pro`, the tool copies only
-editable KiCad inputs and common local 3D model files. Generated manufacturing
-outputs, history/backup folders, Gerbers, BOMs, and temporary files are skipped.
-Crossing the KiCad 5/6 boundary automatically changes extensions where needed,
-for example `.sch -> .kicad_sch`, `.lib -> .kicad_sym`, `.kicad_sch -> .sch`,
-`.kicad_sym -> .lib/.dcm`, and `.kicad_pro -> .pro`.
+Crossing the KiCad 5/6 boundary changes file families where required:
 
-## Project Layout
+| Direction | Examples |
+| --- | --- |
+| KiCad 5/4 -> KiCad 6+ | `.sch -> .kicad_sch`, `.lib/.dcm -> .kicad_sym`, `.pro -> .kicad_pro` |
+| KiCad 6+ -> KiCad 5/4 | `.kicad_sch -> .sch`, `.kicad_sym -> .lib + .dcm`, `.kicad_pro -> .pro` |
 
-The code is split by responsibility so later KiCad versions can be added with
-small, localized changes:
+Board and footprint files remain S-expression files across supported targets, with version-specific node and field rewrites.
 
-- `src/kicad_backport.cpp`: CLI flow, project copy/filtering, file conversion.
-- `src/kicad_backport_document.cpp`: KiCad document kind detection.
-- `src/kicad_backport_legacy.cpp`: legacy KiCad `.sch`, `.lib`, `.dcm`, and `.pro` parsing/writing helpers.
-- `src/kicad_backport_pathmap.cpp`: target file extension mapping helpers.
-- `src/kicad_backport_report.cpp`: JSON report formatting.
-- `src/kicad_backport_rules.cpp`: version gates and downgrade rule ordering.
-- `src/kicad_backport_rule_rewriters.cpp`: S-expression tree rewrite helpers.
-- `src/kicad_backport_upgrade.cpp`: limited syntax normalization for older source files.
-- `src/kicad_backport_versions.cpp`: KiCad release aliases and format versions.
-- `src/kicad_backport_util.cpp`: shared string, file, and JSON helpers.
-- `src/sexpr.cpp`: minimal KiCad-style S-expression parser/formatter.
-- `src/internal/`: private implementation headers used only by source files.
-- `include/kicad_backport/`: public project headers used by the executable.
+## Project Conversion
 
-Single-action downgrade rules use a small `applyWhen()` helper instead of
-`std::function`, keeping the rules compact without adding heap allocations.
-Multi-action rules remain grouped when ordering matters.
+When converting a project directory, the tool copies editable KiCad inputs and common local 3D model files, then converts copied KiCad documents in place. It skips generated manufacturing outputs, backups, history folders, Gerbers, BOMs, plot/export directories, and temporary files.
 
-The top-level structure is intentionally simple:
+Project-level repair steps include:
 
-```text
-kicad-backport-cplus/
-  include/kicad_backport/   public headers
-  src/                      implementation files
-  src/internal/             private headers
-  build/                    generated build trees
-  dist/                     packaged command-line binaries
-```
+- normalizing `sym-lib-table` and `fp-lib-table` for the target family;
+- generating or normalizing `.kicad_prl` visibility data for KiCad 6/7/8 targets;
+- embedding generated project-local schematic symbols for KiCad 6+ targets;
+- rebuilding KiCad 6-style schematic hierarchy instances.
 
 ## Build
 
-There are now two simple direct build entrypoints:
-
-- `build.ps1` for Windows native MinGW/g++ builds.
-- `build.sh` for native Linux, Raspberry Pi, and macOS builds.
-
-Native build from a fresh checkout:
-
-```sh
-git clone <repo-url> kicad-backport-cplus
-cd kicad-backport-cplus
-./build.sh --config Release
-```
-
-On Windows:
-
-```powershell
-git clone <repo-url> kicad-backport-cplus
-cd kicad-backport-cplus
-.\build.ps1
-```
-
-Windows native MinGW/g++ build:
+Native build scripts are provided for the host platform:
 
 ```powershell
 .\build.ps1
 ```
-
-Linux/Raspberry Pi/macOS native build:
 
 ```sh
 ./build.sh
 ```
 
-The POSIX entrypoint is intentionally direct: it reads
-`kicad_backport_sources.txt`, compiles each source file with
-`g++`/`clang++`, then links the executable. It does not call a project generator and does not
-install tools. To build Linux/RPi/macOS targets, run `build.sh` on that target
-system, or pass a matching compiler with `--compiler`.
-
-Useful native options:
+Useful POSIX options:
 
 ```sh
 ./build.sh --clean
@@ -177,8 +97,7 @@ Useful native options:
 ./build.sh --static-runtime off
 ```
 
-Outputs are copied to `dist/` using plugin-compatible names. The direct scripts
-currently produce the host target they are run for:
+The scripts read `kicad_backport_sources.txt`, compile the listed sources with `g++` or `clang++`, and copy the executable to `dist/` with plugin-compatible names such as:
 
 - `kicad-backport-windows-amd64.exe`
 - `kicad-backport-linux-amd64`
@@ -187,111 +106,33 @@ currently produce the host target they are run for:
 - `kicad-backport-darwin-amd64`
 - `kicad-backport-darwin-arm64`
 
-`--static-runtime auto` is the default on Linux for direct compiler builds. It
-first tries static `libstdc++` / `libgcc`, then falls back to the system dynamic runtime if static runtime libraries are unavailable.
+The implementation avoids newer standard-library facilities that are often missing from older deployment toolchains. It uses project-owned filesystem helpers and falls back from `-std=c++17` to `-std=c++1z` when needed.
 
-The current source avoids newer standard-library filesystem, view-string, PMR, and memory-resource facilities. It uses a small project-owned path/directory API plus `std::string` for older KiCad-era toolchains. Direct builds fall back from `-std=c++17` to
-`-std=c++1z` for older compilers that spell the C++17 mode that way.
-Direct builds also probe for supported section garbage collection and symbol stripping flags, enabling them only when the active toolchain accepts them.
-Project conversions process copied documents sequentially to keep peak memory
-use predictable on small Linux/RPi systems.
+## Project Layout
 
-Manual direct GCC build:
-
-```sh
-./build.sh --config Release --target native
-```
-
-The implementation is intentionally dependency-free and follows KiCad-style C++
-formatting conventions.
-
-## Acknowledgements
-
-Special thanks to Hubert for the help provided during development of this
-project.
+| Path | Responsibility |
+| --- | --- |
+| `src/kicad_backport.cpp` | CLI flow, project copying/filtering, conversion dispatch. |
+| `src/kicad_backport_document.cpp` | KiCad document kind detection. |
+| `src/kicad_backport_legacy.cpp` | Legacy `.sch`, `.lib`, `.dcm`, and `.pro` parsing/writing. |
+| `src/kicad_backport_rules.cpp` | Downgrade version gates and rule ordering. |
+| `src/kicad_backport_upgrade.cpp` | Conservative syntax upgrades for older sources. |
+| `src/kicad_backport_versions.cpp` | KiCad aliases and per-file format version anchors. |
+| `src/kicad_backport_rule_rewriters.cpp` | S-expression tree rewrite helpers. |
+| `src/sexpr.cpp` | Minimal KiCad-style S-expression parser/formatter. |
+| `include/kicad_backport/` | Public project headers. |
 
 ## Validation
 
-After conversion, validate each target with the matching KiCad version. For
-KiCad 8/9/10 this usually means running schematic ERC and PCB DRC:
+After conversion, open the result with the target KiCad version and run the relevant checks. For KiCad 8/9/10 projects, use schematic ERC and PCB DRC where applicable:
 
 ```powershell
 & 'D:\KiCad\9.0\bin\kicad-cli.exe' sch erc --output erc.rpt project.kicad_sch
 & 'D:\KiCad\9.0\bin\kicad-cli.exe' pcb drc --output drc.rpt project.kicad_pcb
 ```
 
-KiCad 7 CLI has a smaller command set, so use netlist and Gerber export to
-verify that converted schematic and PCB files load:
+Warnings emitted by the converter should be reviewed before treating a downgraded project as production-ready.
 
-```powershell
-& 'D:\KiCad\7.0\bin\kicad-cli.exe' sch export netlist --output netlist.net project.kicad_sch
-& 'D:\KiCad\7.0\bin\kicad-cli.exe' pcb export gerbers --output gerbers project.kicad_pcb
-```
+## Acknowledgements
 
-KiCad 6 has limited CLI validation coverage. For PCB files, a quick parser check
-can be done through KiCad 6's Python module:
-
-```powershell
-& 'D:\KiCad\6.0\bin\python.exe' -c "import pcbnew; pcbnew.LoadBoard(r'E:\tmp\project_V6\project.kicad_pcb'); print('pcb ok')"
-```
-
-For KiCad 6 schematics and symbols, manual GUI opening remains the most useful
-end-to-end validation. Current V6 regression samples have been checked this way.
-
-ERC/DRC violations are design-rule findings from the project. They are not
-format conversion failures unless KiCad reports a load or parse error.
-
-### Conversion Compare Package
-
-For repeatable downgrade/upgrade regression analysis, use the Python compare
-package runner. It reads one or more source project directories, converts each
-target version, exports source and target PCB/SCH SVGs with `kicad-cli`, compares
-visible SVG signatures, and writes machine-readable plus human-readable reports.
-
-```powershell
-.\scripts\run-kicad-conversion-compare-package.ps1 `
-  -Config .\scripts\kicad-conversion-compare-package.example.json
-```
-
-The PowerShell entry point is a compatibility wrapper around:
-
-```powershell
-python .\scripts\run_kicad_conversion_compare_package.py --config .\scripts\kicad-conversion-compare-package.example.json
-```
-
-The JSON config supports both the old top-level `source_projects` /
-`target_versions` form and the richer `cases` form. Each case can point at
-project directories, `.kicad_pro` files, standalone `.kicad_pcb` files, or
-standalone schematic files. Case `mode` can be `auto` for direct conversion
-comparison or `downgrade-upgrade` / `roundtrip` to compare the converted result
-after converting back to a configured source target version.
-
-KiCad executables can be mapped by version:
-
-```json
-{
-  "kicad": {
-    "default_cli": "D:\\KiCad\\10.99\\bin\\kicad-cli.exe",
-    "versions": {
-      "6.0": { "cli": "D:\\KiCad\\6.0\\bin\\kicad-cli.exe" },
-      "9.0": { "cli": "D:\\KiCad\\9.0\\bin\\kicad-cli.exe" },
-      "10.99": { "cli": "D:\\KiCad\\10.99\\bin\\kicad-cli.exe" }
-    }
-  }
-}
-```
-
-Source SVG export uses the case `source_kicad_version`; target SVG export uses
-the target version when a matching KiCad CLI is configured, otherwise the
-default CLI is used. Set `pcb_layers` to `auto` to parse the source board layer
-table and export all board layers found there, or provide an explicit comma
-separated layer list.
-
-Useful outputs under the configured `output_root`:
-
-- `manifest.csv` / `manifest.json`: one row per source-target conversion.
-- `case-diff-summary.csv`: compact AI/human triage table of differing SVG files.
-- `summary.json`: status counts and case diff summary for automation.
-- `analysis-report.md`: readable report with priority differences and notes.
-- Per case `compare/visual-compare.csv`, `compare/visual-diff-details.csv`, and
-  `compare/schematic-text-diff.csv`.
+Special thanks to Hubert for the help provided during development of this project.
