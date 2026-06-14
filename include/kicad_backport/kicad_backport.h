@@ -62,6 +62,8 @@ struct PROJECT_COPY_ENTRY
     FS::path Source;
     FS::path Output;
     bool                  IsDocument = false;
+    bool                  HasReport = false;
+    FILE_REPORT           Report;
 };
 
 // Command-line front end for project/file inspection and downgrade conversion.

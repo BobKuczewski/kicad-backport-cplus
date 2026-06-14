@@ -2018,6 +2018,46 @@ std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const FS::path& aInp
             continue;
 
         bool isDocument = isKiCadDocumentPath( entry.path() );
+        bool hasCopyReport = false;
+        FILE_REPORT copyReport;
+
+        if( ext == ".kicad_dru" )
+        {
+            FILE_REPORT report = detectVersionFast( entry.path() );
+            std::string targetVersion;
+
+            try
+            {
+                targetVersion = ResolveTargetVersion( KIND::DESIGN_RULES, aTarget );
+            }
+            catch( const std::runtime_error& )
+            {
+                report.Path = entry.path().string();
+                report.OutputPath.clear();
+                report.TargetVersion = "unsupported";
+                report.Warnings.push_back( "skipped design-rules file because the target KiCad "
+                                           + aTarget + " format does not support .kicad_dru" );
+                PROJECT_COPY_ENTRY skipped;
+                skipped.Source = entry.path();
+                skipped.Output = dest / rel;
+                skipped.HasReport = true;
+                skipped.Report = report;
+                copied.push_back( skipped );
+                continue;
+            }
+
+            if( report.SourceVersion != targetVersion )
+            {
+                throw std::runtime_error( "design-rules conversion is not implemented for "
+                                          + entry.path().string() + " from version "
+                                          + report.SourceVersion + " to " + targetVersion );
+            }
+
+            report.TargetVersion = targetVersion;
+            copyReport = report;
+            hasCopyReport = true;
+            isDocument = false;
+        }
 
         if( isDocument && targetMajor > 5 && ext == ".dcm" )
         {
@@ -2038,7 +2078,20 @@ std::vector<PROJECT_COPY_ENTRY> CONVERTER::copyProjectTree( const FS::path& aInp
         if( !isDocument )
             FS::copy_file( entry.path(), out, FS::copy_options::overwrite_existing );
 
-        copied.push_back( PROJECT_COPY_ENTRY{ entry.path(), out, isDocument } );
+        PROJECT_COPY_ENTRY copiedEntry;
+        copiedEntry.Source = entry.path();
+        copiedEntry.Output = out;
+        copiedEntry.IsDocument = isDocument;
+
+        if( hasCopyReport )
+        {
+            copyReport.Path = out.string();
+            copyReport.OutputPath = out.string();
+            copiedEntry.HasReport = true;
+            copiedEntry.Report = copyReport;
+        }
+
+        copied.push_back( copiedEntry );
     }
 
     return copied;
@@ -2463,6 +2516,9 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
 
         for( const PROJECT_COPY_ENTRY& entry : copied )
         {
+            if( entry.HasReport )
+                reports.push_back( entry.Report );
+
             if( entry.IsDocument )
                 documents.push_back( entry );
         }
