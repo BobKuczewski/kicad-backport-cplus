@@ -71,6 +71,7 @@
 | 영역 | 동작 |
 | --- | --- |
 | KiCad 6/7/8 project worksheet | `kicad-embed://...kicad_wks` page-layout reference 를 비워 KiCad 6/7/8 이 지원하지 않는 embedded worksheet path 를 로드하지 않게 합니다. |
+| board/footprint embedded 3D model | zstd support 가 compile 되어 있으면 embedded `type model` resource 를 `3D/`로 추출하고 `kicad-embed://...` model URI 를 `${KIPRJMOD}/3D/...`로 재작성합니다. zstd 가 없으면 model data 를 decompress 할 수 없으므로 unsupported embedded model reference 를 warning 과 함께 삭제합니다. |
 | KiCad 6 schematic | root `uuid`, placed symbol pin UUID block, 지원하지 않는 root-level drawing primitive(`rectangle`, `circle`, `arc`, `polyline`, `bezier`), 호환되지 않는 fill color 를 삭제하거나 호환 값으로 되돌립니다. |
 | KiCad 4/5 legacy schematic | 여러 줄 text 는 한 줄의 escaped `\n`으로 작성합니다. project 변환은 `<project>-cache.lib`를 만들고 `LIBS:<project>-cache`를 추가합니다. |
 | KiCad 4/5 legacy symbol library | `DEF` reference field 는 `U1` 같은 instance reference 가 아니라 prefix 로 작성합니다. |
@@ -87,6 +88,7 @@
 | `.dcm` | KiCad 6+ target 에서 대응 `.lib`가 있으면 `.dcm`은 별도로 변환하지 않습니다. |
 | `.kicad_dru` | `.kicad_dru`를 지원하지 않는 target 에서는 skip 하고, 같은 design-rule anchor target 에서는 복사합니다. |
 | project worksheet refs | KiCad 6/7/8 에서는 `.kicad_pro`의 embedded worksheet page-layout reference 를 비웁니다. |
+| embedded 3D model | zstd support 가 있으면 embedded 3D model 을 `3D/`로 추출하고 `${KIPRJMOD}/3D/...`로 참조합니다. zstd 가 없으면 추출할 수 없는 embedded model reference 는 warning 후 삭제됩니다. |
 | library table | `sym-lib-table` / `fp-lib-table`을 target family 에 맞게 정규화합니다. |
 | schematic support | KiCad 6+ target 에서 project-local symbol 을 schematic `lib_symbols`에 embed 하고 hierarchy instances 를 재구성합니다. |
 | legacy schematic cache | KiCad 5/4 에서는 `Library.lib`를 `<project>-cache.lib`로 복사하고 생성된 각 `.sch`에 `LIBS:<project>-cache`를 추가합니다. |

@@ -70,6 +70,7 @@
 | 目标解析器只接受较少的填充或绘图形式 | 替换不支持的填充或删除不支持的原理图绘图图元。 | KiCad 6 原理图解析器会拒绝较新版本生成的符号填充颜色和根级原理图绘图图元。 | `(fill (type color) ...)` 降为 `background`；KiCad 6 原理图删除根级 `rectangle`、`circle`、`arc`、`polyline`、`bezier`。 |
 | 源文件缺少新语义 | 不主动生成新对象。 | 转换器不能推测用户设计意图。 | 升级到 KiCad 9/10 不自动生成 padstack、variants、component classes、barcodes。 |
 | legacy 旧记录无法完整表达现代对象 | writer 输出可表达子集，并通过 warning 暴露。 | KiCad 4/5 `.sch/.lib` 能力远小于现代 S-expression。 | 现代符号图元、属性、实例结构、复杂 schematic 对象降到 legacy 时有损。 |
+| 新版 board/footprint 含嵌入式 3D 模型 | 编译 zstd 支持时提取 `type model` 资源到 `3D/`，并把 `kicad-embed://...` 模型 URI 改写为 `${KIPRJMOD}/3D/...`；未编译 zstd 时无法解压模型数据，会通过 warning 报告并删除旧目标不支持的 embedded 模型引用。 | 旧版 KiCad 不能解析新版 embedded 文件容器，KiCad 9/10 还可能因保留不匹配的校验数据而报错。 | `embedded_files` 中的 STEP/WRL/STL 等 3D 模型。 |
 
 ## 文件族与扩展名
 

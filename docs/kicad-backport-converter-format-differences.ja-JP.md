@@ -72,6 +72,7 @@
 | 領域 | 動作 |
 | --- | --- |
 | KiCad 6/7/8 project worksheet | `kicad-embed://...kicad_wks` への page-layout reference を空にし、KiCad 6/7/8 が未対応の埋め込み worksheet path を読み込もうとする問題を避けます。 |
+| board/footprint の embedded 3D model | zstd support が compile されている場合、embedded `type model` resource を `3D/` へ抽出し、`kicad-embed://...` model URI を `${KIPRJMOD}/3D/...` へ書き換えます。zstd がない場合は model data を decompress できないため、unsupported embedded model reference を warning 付きで削除します。 |
 | KiCad 6 schematic | root `uuid`、配置済み symbol pin UUID block、未対応の root-level drawing primitive (`rectangle`, `circle`, `arc`, `polyline`, `bezier`)、互換性のない fill color を削除または互換値へ戻します。 |
 | KiCad 4/5 legacy schematic | 複数行 text は 1 行の escaped `\n` として書きます。project 変換では `<project>-cache.lib` を生成し、`LIBS:<project>-cache` を追加します。 |
 | KiCad 4/5 legacy symbol library | `DEF` reference field は `U1` のような instance reference ではなく prefix として出力します。 |
@@ -88,6 +89,7 @@
 | `.dcm` | KiCad 6+ target で対応する `.lib` がある場合、`.dcm` は単独変換しません。 |
 | `.kicad_dru` | `.kicad_dru` 非対応 target では skip し、同じ design-rule anchor の target ではコピーします。 |
 | project worksheet refs | KiCad 6/7/8 では `.kicad_pro` 内の埋め込み worksheet page-layout reference を空にします。 |
+| embedded 3D model | zstd support がある場合、embedded 3D model を `3D/` へ抽出し `${KIPRJMOD}/3D/...` として参照します。zstd がない場合、抽出できない embedded model reference は warning 後に削除します。 |
 | library table | `sym-lib-table` / `fp-lib-table` を target family に合わせて正規化します。 |
 | schematic support | KiCad 6+ target では project-local symbol を schematic `lib_symbols` に embed し、hierarchy instances を再構築します。 |
 | legacy schematic cache | KiCad 5/4 では `Library.lib` を `<project>-cache.lib` にコピーし、生成した各 `.sch` に `LIBS:<project>-cache` を追加します。 |

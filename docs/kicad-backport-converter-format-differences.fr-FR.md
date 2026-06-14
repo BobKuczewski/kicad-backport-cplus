@@ -71,6 +71,7 @@ Ce document décrit les différences de formats KiCad réellement prises en char
 | Domaine | Comportement |
 | --- | --- |
 | Worksheets projet KiCad 6/7/8 | Les références page-layout vers `kicad-embed://...kicad_wks` sont vidées pour éviter que KiCad 6/7/8 charge des chemins worksheet embarqués non supportés. |
+| Modèles 3D embarqués dans board/footprint | Avec zstd compilé, les ressources embarquées `type model` sont extraites vers `3D/` et les URI de modèle `kicad-embed://...` sont réécrites en `${KIPRJMOD}/3D/...`. Sans zstd, les données ne peuvent pas être décompressées ; les références embedded model non supportées sont supprimées avec warnings. |
 | Schémas KiCad 6 | Le root `uuid`, les blocs UUID de pins de symboles placés, les primitives de dessin root-level non supportées (`rectangle`, `circle`, `arc`, `polyline`, `bezier`) et les fill colors incompatibles sont supprimés ou ramenés à des valeurs compatibles. |
 | Schémas legacy KiCad 4/5 | Le texte multiligne est écrit comme `\n` échappé sur une seule ligne ; les conversions projet créent `<project>-cache.lib` et ajoutent `LIBS:<project>-cache`. |
 | Bibliothèques symboles legacy KiCad 4/5 | Les champs de référence `DEF` sont écrits comme préfixes, pas comme références d’instance telles que `U1`. |
@@ -87,6 +88,7 @@ Ce document décrit les différences de formats KiCad réellement prises en char
 | `.dcm` | Si un `.lib` associé existe pour une cible KiCad 6+, `.dcm` n’est pas converti séparément. |
 | `.kicad_dru` | Ignoré pour les cibles sans support `.kicad_dru` ; copié quand l’ancre de règles de conception est identique. |
 | Références worksheet projet | Pour KiCad 6/7/8, les références page-layout worksheet embarquées sont vidées dans `.kicad_pro`. |
+| Modèles 3D embarqués | Avec zstd, les modèles 3D embarqués sont extraits vers `3D/` et référencés comme `${KIPRJMOD}/3D/...`; sans zstd, les références embedded model non extractibles sont signalées puis supprimées. |
 | Library tables | `sym-lib-table` / `fp-lib-table` sont normalisées pour la famille cible. |
 | Support schematic | Pour KiCad 6+, les symboles locaux sont intégrés dans `lib_symbols` et les hierarchy instances sont reconstruites. |
 | Cache schematic legacy | Pour KiCad 5/4, `Library.lib` est copié vers `<project>-cache.lib` et chaque `.sch` généré reçoit `LIBS:<project>-cache`. |

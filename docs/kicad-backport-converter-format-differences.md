@@ -191,6 +191,7 @@ This document describes the KiCad file-format differences that are actually hand
 | Downgrade `<20260511` | Remove `spec_frequency` and `dielectric_model`. | Stackup frequency-field rollback. |
 | Downgrade `<20260508` | Remove native PCB/footprint ellipse nodes. | Native ellipse rollback. |
 | Downgrade `<20260410` | Remove typed/extruded 3D model blocks. | 3D model rollback. |
+| Downgrade from newer board/footprint formats | When zstd support is compiled in, extract embedded `type model` resources to `3D/`, rewrite `kicad-embed://...` model URIs to `${KIPRJMOD}/3D/...`, and remove embedded file containers from the downgraded document. Without zstd support, embedded model data cannot be decompressed and unsupported `kicad-embed://...` references are removed with warnings. | Preserves embedded 3D model files for older targets while avoiding parser/checksum failures on newer embedded data containers. |
 | Downgrade `<20251101` | Remove backdrill, tertiary drill, and post-machining fields. | Backdrill/post-machining rollback. |
 | Downgrade `<20251028` | Add legacy netcodes to board net references. | Older net-reference compatibility. |
 | Downgrade `<20250914` | Remove barcode nodes. | Barcode rollback. |

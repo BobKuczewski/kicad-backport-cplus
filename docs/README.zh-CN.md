@@ -64,6 +64,8 @@ kicad-backport version
 
 - 按目标文件族规范化 `sym-lib-table` 和 `fp-lib-table`；
 - 为 KiCad 6/7/8 生成或规范化 `.kicad_prl` 可见性数据；
+- 降级新版 board/footprint 时，将嵌入式 3D 模型资源提取到工程本地 `3D/`
+  目录，并把 `kicad-embed://...` 模型 URI 改写为 `${KIPRJMOD}/3D/...`；
 - 为 KiCad 6+ 嵌入生成的工程本地 schematic symbols；
 - 重建 KiCad 6 风格 schematic hierarchy instances。
 
@@ -84,7 +86,13 @@ kicad-backport version
 ./build.sh --config Release
 ./build.sh --compiler g++-8
 ./build.sh --static-runtime off
+./build.sh --zstd off
 ```
+
+PowerShell 也支持 `-Zstd auto|on|off`。默认 `auto` 会在存在
+`src/third_party/zstd` 时编译内置 zstd 解压支持。若旧工具链无法编译
+vendored C 源码，可使用 `off`；此时转换器无法从新版 KiCad 文件中提取嵌入式
+3D 模型资源，并会在必须移除不受支持的 embedded model 引用时输出 warning。
 
 脚本读取 `kicad_backport_sources.txt`，使用 `g++` 或 `clang++` 编译，并把可执行文件复制到 `dist/`。实现避免使用旧部署工具链常缺失的新标准库设施，并在需要时从 `-std=c++17` fallback 到 `-std=c++1z`。
 

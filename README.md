@@ -73,6 +73,9 @@ Project-level repair steps include:
 
 - normalizing `sym-lib-table` and `fp-lib-table` for the target family;
 - generating or normalizing `.kicad_prl` visibility data for KiCad 6/7/8 targets;
+- extracting embedded PCB/footprint 3D model resources to a project-local `3D/`
+  directory and rewriting `kicad-embed://...` model URIs to `${KIPRJMOD}/3D/...`
+  when downgrading from a newer board/footprint format;
 - embedding generated project-local schematic symbols for KiCad 6+ targets;
 - rebuilding KiCad 6-style schematic hierarchy instances.
 
@@ -95,7 +98,14 @@ Useful POSIX options:
 ./build.sh --config Release
 ./build.sh --compiler g++-8
 ./build.sh --static-runtime off
+./build.sh --zstd off
 ```
+
+PowerShell also accepts `-Zstd auto|on|off`. The default `auto` mode compiles the
+vendored zstd decompressor when `src/third_party/zstd` is present. Use `off` for
+toolchains that cannot build the vendored C sources; embedded 3D model resources
+then cannot be extracted from newer KiCad files and the converter will warn when
+it has to remove unsupported embedded model references.
 
 The scripts read `kicad_backport_sources.txt`, compile the listed sources with `g++` or `clang++`, and copy the executable to `dist/` with plugin-compatible names such as:
 

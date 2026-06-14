@@ -60,7 +60,7 @@ KiCad 5/6 境界では file family が切り替わります: `.sch -> .kicad_sch
 
 project directory 変換では、編集可能な KiCad input と一般的な local 3D model file のみをコピーし、コピー内の KiCad document を変換します。manufacturing output、backup、history、Gerbers、BOM、plot/export directory、temporary file は skip します。
 
-project-level repair には `sym-lib-table` / `fp-lib-table` の正規化、KiCad 6/7/8 向け `.kicad_prl` visibility data、KiCad 6+ 向け project-local schematic symbols の embed、schematic hierarchy instances の再構築が含まれます。
+project-level repair には `sym-lib-table` / `fp-lib-table` の正規化、KiCad 6/7/8 向け `.kicad_prl` visibility data、新しい board/footprint から downgrade する際の embedded 3D model resource の `3D/` への抽出と `kicad-embed://...` model URI の `${KIPRJMOD}/3D/...` への書き換え、KiCad 6+ 向け project-local schematic symbols の embed、schematic hierarchy instances の再構築が含まれます。
 
 ## Build
 
@@ -71,6 +71,18 @@ project-level repair には `sym-lib-table` / `fp-lib-table` の正規化、KiCa
 ```sh
 ./build.sh
 ```
+
+Useful POSIX options:
+
+```sh
+./build.sh --clean
+./build.sh --config Release
+./build.sh --compiler g++-8
+./build.sh --static-runtime off
+./build.sh --zstd off
+```
+
+PowerShell も `-Zstd auto|on|off` を受け付けます。default の `auto` は `src/third_party/zstd` が存在する場合に vendored zstd decompressor を compile します。古い toolchain が vendored C source を build できない場合は `off` を使えますが、その場合 embedded 3D model resource は抽出できず、unsupported embedded model reference を削除する時に warning が出ます。
 
 scripts は `kicad_backport_sources.txt` を読み、`g++` または `clang++` で compile し、実行ファイルを `dist/` にコピーします。必要に応じて `-std=c++17` から `-std=c++1z` へ fallback します。
 

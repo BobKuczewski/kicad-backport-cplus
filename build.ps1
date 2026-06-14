@@ -4,6 +4,8 @@ param(
     [string]$Compiler = "auto",
     [ValidateSet("auto", "on", "off")]
     [string]$StaticRuntime = "auto",
+    [ValidateSet("auto", "on", "off")]
+    [string]$Zstd = "auto",
     [switch]$Clean
 )
 
@@ -18,6 +20,7 @@ Set-Location $Root
 $BuildRoot = Join-Path $Root "build"
 $DistDir = Join-Path $Root "dist"
 $SourceList = Join-Path $Root "kicad_backport_sources.txt"
+$ZstdRoot = Join-Path $Root "src/third_party/zstd"
 $Target = "windows-amd64"
 $OutputPath = Join-Path $DistDir "kicad-backport-$Target.exe"
 
@@ -37,6 +40,65 @@ function Get-WindowsGxx {
     }
 
     throw "g++ is required. Install MSYS2 UCRT64 GCC or pass -Compiler <path-to-g++>."
+}
+
+function Get-WindowsCc {
+    param([string]$CxxPath)
+
+    if ($CxxPath) {
+        $dir = Split-Path -Parent $CxxPath
+        $leaf = Split-Path -Leaf $CxxPath
+        $cCandidates = @()
+
+        if ($leaf -match "^(.*)g\+\+(.exe)?$") {
+            $cCandidates += ($Matches[1] + "gcc" + $Matches[2])
+        }
+
+        if ($leaf -match "^(.*)g\+\+(-[^\\\/]+)(.exe)?$") {
+            $cCandidates += ($Matches[1] + "gcc" + $Matches[2] + $Matches[3])
+        }
+
+        if ($leaf -match "^(.*)clang\+\+(.exe)?$") {
+            $cCandidates += ($Matches[1] + "clang" + $Matches[2])
+        }
+
+        if ($leaf -match "^(.*)clang\+\+(-[^\\\/]+)(.exe)?$") {
+            $cCandidates += ($Matches[1] + "clang" + $Matches[2] + $Matches[3])
+        }
+
+        if ($dir) {
+            $pathCandidates = @()
+
+            foreach ($candidate in $cCandidates) {
+                $pathCandidates += Join-Path $dir $candidate
+            }
+
+            $pathCandidates += Join-Path $dir "gcc.exe"
+            $pathCandidates += Join-Path $dir "clang.exe"
+
+            foreach ($candidate in $pathCandidates) {
+                if ($candidate -and (Test-Path $candidate)) {
+                    return $candidate
+                }
+            }
+        }
+
+        foreach ($candidate in $cCandidates) {
+            $native = Get-Command $candidate -ErrorAction SilentlyContinue
+            if ($native) {
+                return $native.Source
+            }
+        }
+    }
+
+    foreach ($candidate in @("gcc", "clang", "cc")) {
+        $native = Get-Command $candidate -ErrorAction SilentlyContinue
+        if ($native) {
+            return $native.Source
+        }
+    }
+
+    throw "A C compiler is required for vendored zstd. Install gcc/clang or set CC."
 }
 
 function Add-CompilerPath {
@@ -65,6 +127,22 @@ function Split-EnvFlags {
     }
 
     return $Value -split "\s+"
+}
+
+function Get-ZstdEnabled {
+    $zstdHeader = Join-Path $ZstdRoot "lib/zstd.h"
+    $zstdDecompressSource = Join-Path $ZstdRoot "lib/decompress/zstd_decompress.c"
+    $available = (Test-Path $zstdHeader) -and (Test-Path $zstdDecompressSource)
+
+    if ($Zstd -eq "on" -and -not $available) {
+        throw "Zstd support was requested, but vendored zstd sources are missing under $ZstdRoot."
+    }
+
+    if ($Zstd -eq "off") {
+        return $false
+    }
+
+    return $available
 }
 
 function Get-CxxStandardFlag {
@@ -121,6 +199,67 @@ function Test-CompileFlag {
     }
 }
 
+function Get-CStandardFlag {
+    param([string]$CompilerPath)
+
+    $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("kicad-backport-c-std-" + [System.Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+    $source = Join-Path $tempDir "probe.c"
+    $object = Join-Path $tempDir "probe.o"
+    @"
+#include <stddef.h>
+int main(void) { unsigned char data[1] = { 0 }; return data[0]; }
+"@ | Set-Content -LiteralPath $source -Encoding ASCII
+
+    try {
+        foreach ($flag in @("-std=c99", "-std=gnu99", "")) {
+            if ($flag -eq "") {
+                & $CompilerPath -c $source -o $object *> $null
+            }
+            else {
+                & $CompilerPath $flag -c $source -o $object *> $null
+            }
+
+            if ($LASTEXITCODE -eq 0) {
+                return $flag
+            }
+        }
+    }
+    finally {
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tempDir
+    }
+
+    throw "$CompilerPath cannot compile the required C mode probe."
+}
+
+function Test-CCompileFlag {
+    param(
+        [string]$CompilerPath,
+        [string]$StandardFlag,
+        [string]$Flag
+    )
+
+    $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("kicad-backport-c-flag-" + [System.Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+    $source = Join-Path $tempDir "probe.c"
+    $object = Join-Path $tempDir "probe.o"
+    "int main(void) { return 0; }" | Set-Content -LiteralPath $source -Encoding ASCII
+
+    try {
+        if ($StandardFlag) {
+            & $CompilerPath $StandardFlag $Flag -Werror -c $source -o $object *> $null
+        }
+        else {
+            & $CompilerPath $Flag -Werror -c $source -o $object *> $null
+        }
+
+        return $LASTEXITCODE -eq 0
+    }
+    finally {
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tempDir
+    }
+}
+
 function Test-LinkFlag {
     param(
         [string]$CompilerPath,
@@ -169,6 +308,26 @@ function Get-SizeCompileFlags {
     return $flags
 }
 
+function Get-SizeCCompileFlags {
+    param(
+        [string]$CompilerPath,
+        [string]$StandardFlag
+    )
+
+    if ($Config -eq "Debug") {
+        return @()
+    }
+
+    $flags = @()
+    foreach ($flag in @("-ffunction-sections", "-fdata-sections")) {
+        if (Test-CCompileFlag $CompilerPath $StandardFlag $flag) {
+            $flags += $flag
+        }
+    }
+
+    return $flags
+}
+
 function Get-SizeLinkFlags {
     param(
         [string]$CompilerPath,
@@ -201,6 +360,8 @@ if ($Clean) {
 }
 
 $gxx = Get-WindowsGxx
+$zstdEnabled = Get-ZstdEnabled
+$cc = if ($zstdEnabled) { Get-WindowsCc $gxx } else { $null }
 Add-CompilerPath $gxx
 
 $buildDir = Join-Path $BuildRoot "$Target-direct"
@@ -215,11 +376,32 @@ $commonFlags = @(
     "-Wall",
     "-Wextra",
     "-Wpedantic",
+    "-DKICAD_BACKPORT_WITH_ZSTD=$(if ($zstdEnabled) { '1' } else { '0' })",
     "-I$(Join-Path $Root 'include')",
     "-I$(Join-Path $Root 'src')"
 )
+$commonCFlags = @()
+$sizeCFlags = @()
+
+if ($zstdEnabled) {
+    $cStdFlag = Get-CStandardFlag $cc
+    $sizeCFlags = Get-SizeCCompileFlags $cc $cStdFlag
+    $commonCFlags = @(
+        $cStdFlag,
+        "-Wall",
+        "-Wextra",
+        "-DZSTD_DISABLE_ASM",
+        "-DZSTD_NO_INTRINSICS",
+        "-DZSTD_LEGACY_SUPPORT=0",
+        "-I$(Join-Path $Root 'src/third_party/zstd/lib')",
+        "-I$(Join-Path $Root 'src/third_party/zstd/lib/common')",
+        "-I$(Join-Path $Root 'src/third_party/zstd/lib/decompress')"
+    ) | Where-Object { $_ -ne "" }
+}
+
 $configFlags = Get-ConfigFlags
 $extraCxxFlags = Split-EnvFlags $env:CXXFLAGS
+$extraCFlags = Split-EnvFlags $env:CFLAGS
 $extraLdFlags = Split-EnvFlags $env:LDFLAGS
 
 $staticFlags = @()
@@ -228,6 +410,10 @@ if ($StaticRuntime -ne "off") {
 }
 
 Write-Host "Compiler: $(& $gxx --version | Select-Object -First 1)"
+Write-Host "Zstd: $(if ($zstdEnabled) { 'enabled' } else { 'disabled' })"
+if ($zstdEnabled -and $cc -ne $gxx) {
+    Write-Host "C compiler: $(& $cc --version | Select-Object -First 1)"
+}
 Write-Host "Target: $Target"
 
 $objects = @()
@@ -237,11 +423,24 @@ foreach ($line in Get-Content -LiteralPath $SourceList) {
         continue
     }
 
-    $object = Join-Path $objectDir (($source -replace "/", "\") -replace "\.cpp$", ".o")
+    $object = Join-Path $objectDir (($source -replace "/", "\") -replace "\.(cpp|c)$", ".o")
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $object) | Out-Null
 
     $sourcePath = Join-Path $Root ($source -replace "/", "\")
-    & $gxx @commonFlags @configFlags @sizeCxxFlags @extraCxxFlags -c $sourcePath -o $object
+    if ($source.EndsWith(".c")) {
+        if (-not $zstdEnabled -and $source -like "src/third_party/zstd/*") {
+            continue
+        }
+
+        if (-not $zstdEnabled) {
+            throw "C source requires zstd support to be enabled: $source"
+        }
+
+        & $cc @commonCFlags @configFlags @sizeCFlags @extraCFlags -c $sourcePath -o $object
+    }
+    else {
+        & $gxx @commonFlags @configFlags @sizeCxxFlags @extraCxxFlags -c $sourcePath -o $object
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Compile failed: $source"
     }

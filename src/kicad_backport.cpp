@@ -7,16 +7,27 @@
 #include "kicad_backport/kicad_backport_util.h"
 #include "kicad_backport/kicad_backport_versions.h"
 
+#ifndef KICAD_BACKPORT_WITH_ZSTD
+#define KICAD_BACKPORT_WITH_ZSTD 0
+#endif
+
+#if KICAD_BACKPORT_WITH_ZSTD
+#include "third_party/zstd/lib/zstd.h"
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 
 namespace KICAD_BACKPORT
@@ -26,6 +37,21 @@ namespace
 {
 
 using CLOCK = std::chrono::steady_clock;
+
+struct EMBEDDED_FILE
+{
+    std::string Name;
+    std::string Type;
+    std::string Data;
+};
+
+struct EMBEDDED_MODEL_EXPORT_RESULT
+{
+    int Extracted = 0;
+    int Rewritten = 0;
+    int Removed = 0;
+    std::vector<std::string> Warnings;
+};
 
 long long elapsedMicros( CLOCK::time_point aStart, CLOCK::time_point aEnd )
 {
@@ -53,6 +79,447 @@ bool isLibraryTablePath( const FS::path& aPath )
 {
     std::string name = Lower( aPath.filename().string() );
     return name == "sym-lib-table" || name == "fp-lib-table";
+}
+
+
+bool isPathSeparator( char aChar )
+{
+    return aChar == '/' || aChar == '\\';
+}
+
+
+std::string safeEmbeddedFilename( const std::string& aName )
+{
+    std::string out;
+
+    for( char ch : aName )
+    {
+        unsigned char c = static_cast<unsigned char>( ch );
+
+        if( ch == ':' || ch == '*' || ch == '?' || ch == '"' || ch == '<' || ch == '>'
+            || ch == '|' || isPathSeparator( ch ) || c < 32 )
+        {
+            out.push_back( '_' );
+        }
+        else
+        {
+            out.push_back( ch );
+        }
+    }
+
+    out = Trim( out );
+
+    while( !out.empty() && ( out.back() == '.' || out.back() == ' ' ) )
+        out.pop_back();
+
+    if( out.empty() || out == "." || out == ".." )
+        return "embedded_model.step";
+
+    return out;
+}
+
+
+std::string embeddedUriFilename( const std::string& aValue )
+{
+    static const std::string prefix = "kicad-embed://";
+
+    if( !StartsWith( aValue, prefix ) )
+        return "";
+
+    std::string name = aValue.substr( prefix.size() );
+
+    while( !name.empty() && isPathSeparator( name.front() ) )
+        name.erase( name.begin() );
+
+    return safeEmbeddedFilename( name );
+}
+
+
+bool isModelFileName( const std::string& aName )
+{
+    std::string ext = Lower( FS::path( aName ).extension().string() );
+    static const std::set<std::string> modelExts = {
+        ".step", ".stp", ".wrl", ".iges", ".igs", ".stl", ".obj"
+    };
+
+    return modelExts.count( ext ) != 0;
+}
+
+
+std::string embeddedDataAtomText( const SEXPR::NODE* aData )
+{
+    if( !aData || aData->IsAtom() || aData->HeadView() != "data" )
+        return "";
+
+    std::string out;
+
+    for( size_t i = 1; i < aData->Children.size(); ++i )
+    {
+        const std::unique_ptr<SEXPR::NODE>& child = aData->Children[i];
+
+        if( !child || !child->IsAtom() )
+            continue;
+
+        std::string atom = child->Atom;
+
+        if( !atom.empty() && atom.front() == '|' )
+            atom.erase( atom.begin() );
+
+        if( !atom.empty() && atom.back() == '|' )
+            atom.pop_back();
+
+        out += atom;
+    }
+
+    return out;
+}
+
+
+int base64Value( char aChar )
+{
+    if( aChar >= 'A' && aChar <= 'Z' )
+        return aChar - 'A';
+
+    if( aChar >= 'a' && aChar <= 'z' )
+        return aChar - 'a' + 26;
+
+    if( aChar >= '0' && aChar <= '9' )
+        return aChar - '0' + 52;
+
+    if( aChar == '+' )
+        return 62;
+
+    if( aChar == '/' )
+        return 63;
+
+    return -1;
+}
+
+
+bool decodeBase64( const std::string& aInput, std::string& aOutput )
+{
+    aOutput.clear();
+    int value = 0;
+    int bits = -8;
+
+    for( char ch : aInput )
+    {
+        if( std::isspace( static_cast<unsigned char>( ch ) ) )
+            continue;
+
+        if( ch == '=' )
+            break;
+
+        int decoded = base64Value( ch );
+
+        if( decoded < 0 )
+            return false;
+
+        value = ( value << 6 ) | decoded;
+        bits += 6;
+
+        if( bits >= 0 )
+        {
+            aOutput.push_back( static_cast<char>( ( value >> bits ) & 0xFF ) );
+            bits -= 8;
+        }
+    }
+
+    return true;
+}
+
+
+bool zstdDecompress( const std::string& aCompressed, std::string& aOutput,
+                     std::string& aError )
+{
+#if !KICAD_BACKPORT_WITH_ZSTD
+    (void) aCompressed;
+
+    aOutput.clear();
+    aError = "zstd support is not compiled in";
+    return false;
+#else
+    static const size_t maxOutputSize = 256u * 1024u * 1024u;
+
+    aOutput.clear();
+    aError.clear();
+
+    if( aCompressed.empty() )
+    {
+        aError = "empty compressed data";
+        return false;
+    }
+
+    unsigned long long contentSize = ZSTD_getFrameContentSize( aCompressed.data(),
+                                                               aCompressed.size() );
+
+    if( contentSize == ZSTD_CONTENTSIZE_ERROR )
+    {
+        aError = "embedded data is not a valid zstd frame";
+        return false;
+    }
+
+    if( contentSize != ZSTD_CONTENTSIZE_UNKNOWN
+        && contentSize > static_cast<unsigned long long>( maxOutputSize ) )
+    {
+        aError = "embedded zstd frame is too large";
+        return false;
+    }
+
+    if( contentSize != ZSTD_CONTENTSIZE_UNKNOWN )
+    {
+        aOutput.assign( static_cast<size_t>( contentSize ), '\0' );
+        size_t decompressed = ZSTD_decompress( aOutput.empty() ? nullptr : &aOutput[0],
+                                               aOutput.size(), aCompressed.data(),
+                                               aCompressed.size() );
+
+        if( ZSTD_isError( decompressed ) )
+        {
+            aError = ZSTD_getErrorName( decompressed );
+            return false;
+        }
+
+        aOutput.resize( decompressed );
+        return true;
+    }
+
+    std::unique_ptr<ZSTD_DCtx, size_t (*)( ZSTD_DCtx* )> dctx( ZSTD_createDCtx(),
+                                                               ZSTD_freeDCtx );
+
+    if( !dctx )
+    {
+        aError = "could not create zstd decompression context";
+        return false;
+    }
+
+    size_t bufferSize = ZSTD_DStreamOutSize();
+
+    if( bufferSize == 0 )
+        bufferSize = 128u * 1024u;
+
+    std::vector<char> buffer( bufferSize );
+    ZSTD_inBuffer input = { aCompressed.data(), aCompressed.size(), 0 };
+    size_t remaining = 1;
+
+    while( input.pos < input.size || remaining != 0 )
+    {
+        size_t oldInputPos = input.pos;
+        ZSTD_outBuffer output = { buffer.data(), buffer.size(), 0 };
+        remaining = ZSTD_decompressStream( dctx.get(), &output, &input );
+
+        if( ZSTD_isError( remaining ) )
+        {
+            aError = ZSTD_getErrorName( remaining );
+            return false;
+        }
+
+        if( output.pos > 0 )
+        {
+            if( aOutput.size() > maxOutputSize - output.pos )
+            {
+                aError = "embedded zstd frame is too large";
+                return false;
+            }
+
+            aOutput.append( buffer.data(), output.pos );
+        }
+
+        if( remaining == 0 && input.pos == input.size )
+            break;
+
+        if( input.pos == oldInputPos && output.pos == 0 )
+        {
+            aError = input.pos == input.size ? "incomplete zstd frame"
+                                             : "zstd stream made no progress";
+            return false;
+        }
+    }
+
+    return true;
+#endif
+}
+
+
+void collectEmbeddedFiles( SEXPR::NODE* aRoot, std::map<std::string, EMBEDDED_FILE>& aFiles )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return;
+
+    if( aRoot->HeadView() == "embedded_files" || aRoot->HeadView() == "embedded_file" )
+    {
+        for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        {
+            if( !child || child->IsAtom() || child->HeadView() != "file" )
+                continue;
+
+            EMBEDDED_FILE file;
+            SEXPR::NODE* nameNode = child->ChildList( "name" );
+            SEXPR::NODE* typeNode = child->ChildList( "type" );
+            file.Name = safeEmbeddedFilename( nameNode ? nameNode->AtomAt( 1 ) : "" );
+            file.Type = typeNode ? typeNode->AtomAt( 1 ) : "";
+            file.Data = embeddedDataAtomText( child->ChildList( "data" ) );
+
+            if( !file.Name.empty() )
+                aFiles[file.Name] = std::move( file );
+        }
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        collectEmbeddedFiles( child.get(), aFiles );
+}
+
+
+int rewriteEmbeddedModelUris( SEXPR::NODE* aRoot, const std::set<std::string>& aExtractedNames,
+                              bool aRemoveUnresolved )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+    kept.reserve( aRoot->Children.size() );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        bool remove = false;
+
+        if( child && !child->IsAtom() && child->HeadView() == "model" )
+        {
+            std::string name = embeddedUriFilename( child->AtomAt( 1 ) );
+
+            if( !name.empty() )
+            {
+                if( aExtractedNames.count( name ) )
+                {
+                    if( child->SetAtomAt( 1, "${KIPRJMOD}/3D/" + name, true ) )
+                        ++changed;
+                }
+                else if( aRemoveUnresolved )
+                {
+                    remove = true;
+                    ++changed;
+                }
+            }
+        }
+
+        if( !remove )
+        {
+            changed += rewriteEmbeddedModelUris( child.get(), aExtractedNames,
+                                                 aRemoveUnresolved );
+            kept.push_back( std::move( child ) );
+        }
+    }
+
+    aRoot->Children = std::move( kept );
+    return changed;
+}
+
+
+int removeEmbeddedFileNodes( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int removed = 0;
+    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+    kept.reserve( aRoot->Children.size() );
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom()
+            && ( child->HeadView() == "embedded_files" || child->HeadView() == "embedded_file" ) )
+        {
+            ++removed;
+            continue;
+        }
+
+        removed += removeEmbeddedFileNodes( child.get() );
+        kept.push_back( std::move( child ) );
+    }
+
+    aRoot->Children = std::move( kept );
+    return removed;
+}
+
+
+EMBEDDED_MODEL_EXPORT_RESULT externalizeEmbeddedModelsForLegacyTargets( DOCUMENT& aDocument,
+                                                                        const FS::path& aOutput )
+{
+    EMBEDDED_MODEL_EXPORT_RESULT result;
+
+    if( !aDocument.Root || ( aDocument.Kind != KIND::BOARD && aDocument.Kind != KIND::FOOTPRINT ) )
+        return result;
+
+    std::map<std::string, EMBEDDED_FILE> files;
+    collectEmbeddedFiles( aDocument.Root.get(), files );
+
+    if( files.empty() )
+        return result;
+
+    FS::path modelDir = aOutput.parent_path() / "3D";
+    std::set<std::string> extractedNames;
+
+    for( const auto& item : files )
+    {
+        const EMBEDDED_FILE& file = item.second;
+
+        if( file.Type != "model" || !isModelFileName( file.Name ) )
+            continue;
+
+        std::string compressed;
+
+        if( !decodeBase64( file.Data, compressed ) )
+        {
+            result.Warnings.push_back( "could not decode embedded 3D model " + file.Name );
+            continue;
+        }
+
+        std::string decompressed;
+        std::string error;
+
+        if( !zstdDecompress( compressed, decompressed, error ) )
+        {
+            result.Warnings.push_back( "could not extract embedded 3D model " + file.Name
+                                      + ": " + error );
+            continue;
+        }
+
+        WriteTextFile( modelDir / file.Name, decompressed );
+        extractedNames.insert( file.Name );
+        ++result.Extracted;
+    }
+
+    result.Rewritten = rewriteEmbeddedModelUris( aDocument.Root.get(), extractedNames, true );
+    int removedEmbeddedFileNodes = removeEmbeddedFileNodes( aDocument.Root.get() );
+
+    if( result.Rewritten > result.Extracted )
+        result.Removed = result.Rewritten - result.Extracted;
+
+    if( result.Extracted > 0 )
+    {
+        std::ostringstream msg;
+        msg << "extracted " << result.Extracted
+            << " embedded 3D model file(s) to 3D/ and rewrote kicad-embed model references";
+        result.Warnings.push_back( msg.str() );
+    }
+
+    if( removedEmbeddedFileNodes > 0 )
+    {
+        std::ostringstream msg;
+        msg << "removed " << removedEmbeddedFileNodes
+            << " embedded file container(s) after externalizing 3D models";
+        result.Warnings.push_back( msg.str() );
+    }
+
+    if( result.Removed > 0 )
+    {
+        std::ostringstream msg;
+        msg << "removed " << result.Removed
+            << " unresolved embedded 3D model reference(s) unsupported by the target format";
+        result.Warnings.push_back( msg.str() );
+    }
+
+    return result;
 }
 
 
@@ -1994,9 +2461,23 @@ FILE_REPORT CONVERTER::normalizeFile( const FS::path& aInput,
     CLOCK::time_point rulesStart = CLOCK::now();
 
     if( source > 0 && source < target )
+    {
         report.Warnings = ApplyUpgradeRules( doc, target );
+    }
     else
-        report.Warnings = ApplyDowngradeRules( doc, target );
+    {
+        if( source > target && ( doc.Kind == KIND::BOARD || doc.Kind == KIND::FOOTPRINT ) )
+        {
+            EMBEDDED_MODEL_EXPORT_RESULT embeddedResult =
+                    externalizeEmbeddedModelsForLegacyTargets( doc, aOutput );
+            report.Warnings.insert( report.Warnings.end(), embeddedResult.Warnings.begin(),
+                                    embeddedResult.Warnings.end() );
+        }
+
+        std::vector<std::string> downgradeWarnings = ApplyDowngradeRules( doc, target );
+        report.Warnings.insert( report.Warnings.end(), downgradeWarnings.begin(),
+                                downgradeWarnings.end() );
+    }
 
     CLOCK::time_point rulesEnd = CLOCK::now();
     rulesUs = elapsedMicros( rulesStart, rulesEnd );

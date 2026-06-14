@@ -60,7 +60,7 @@ KiCad 5/6 경계를 넘으면 file family 가 바뀝니다: `.sch -> .kicad_sch`
 
 project directory 변환은 편집 가능한 KiCad input 과 일반 local 3D model file 만 복사한 뒤 복사본 안에서 KiCad document 를 변환합니다. manufacturing output, backup, history, Gerbers, BOM, plot/export directory, temporary file 은 건너뜁니다.
 
-project-level repair 에는 `sym-lib-table` / `fp-lib-table` 정규화, KiCad 6/7/8 용 `.kicad_prl` visibility data, KiCad 6+ 용 project-local schematic symbols embedding, schematic hierarchy instances 재구성이 포함됩니다.
+project-level repair 에는 `sym-lib-table` / `fp-lib-table` 정규화, KiCad 6/7/8 용 `.kicad_prl` visibility data, 최신 board/footprint 에서 downgrade 할 때 embedded 3D model resource 를 `3D/`로 추출하고 `kicad-embed://...` model URI 를 `${KIPRJMOD}/3D/...`로 재작성하는 처리, KiCad 6+ 용 project-local schematic symbols embedding, schematic hierarchy instances 재구성이 포함됩니다.
 
 ## Build
 
@@ -71,6 +71,18 @@ project-level repair 에는 `sym-lib-table` / `fp-lib-table` 정규화, KiCad 6/
 ```sh
 ./build.sh
 ```
+
+Useful POSIX options:
+
+```sh
+./build.sh --clean
+./build.sh --config Release
+./build.sh --compiler g++-8
+./build.sh --static-runtime off
+./build.sh --zstd off
+```
+
+PowerShell 도 `-Zstd auto|on|off`를 지원합니다. 기본 `auto`는 `src/third_party/zstd`가 있으면 vendored zstd decompressor 를 compile 합니다. 오래된 toolchain 이 vendored C source 를 build 하지 못하면 `off`를 사용할 수 있지만, 이 경우 embedded 3D model resource 는 추출할 수 없고 unsupported embedded model reference 를 삭제할 때 warning 이 출력됩니다.
 
 scripts 는 `kicad_backport_sources.txt`를 읽고 `g++` 또는 `clang++`로 compile 한 뒤 실행 파일을 `dist/`에 복사합니다. 필요하면 `-std=c++17`에서 `-std=c++1z`로 fallback 합니다.
 

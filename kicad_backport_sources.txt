@@ -11,3 +11,13 @@ src/kicad_backport_versions.cpp
 src/filesystem.cpp
 src/main.cpp
 src/sexpr.cpp
+src/third_party/zstd/lib/common/debug.c
+src/third_party/zstd/lib/common/entropy_common.c
+src/third_party/zstd/lib/common/error_private.c
+src/third_party/zstd/lib/common/fse_decompress.c
+src/third_party/zstd/lib/common/xxhash.c
+src/third_party/zstd/lib/common/zstd_common.c
+src/third_party/zstd/lib/decompress/huf_decompress.c
+src/third_party/zstd/lib/decompress/zstd_ddict.c
+src/third_party/zstd/lib/decompress/zstd_decompress.c
+src/third_party/zstd/lib/decompress/zstd_decompress_block.c

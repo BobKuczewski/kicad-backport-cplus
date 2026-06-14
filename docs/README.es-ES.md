@@ -60,7 +60,7 @@ La frontera KiCad 5/6 cambia familias de archivos: `.sch -> .kicad_sch`, `.lib/.
 
 Para directorios de proyecto, el conversor copia solo entradas KiCad editables y modelos 3D locales comunes, y luego convierte los documentos copiados. Omite outputs de fabricación, backups, history, Gerbers, BOM, directorios plot/export y temporales.
 
-Las reparaciones incluyen `sym-lib-table` / `fp-lib-table`, `.kicad_prl` para KiCad 6/7/8, símbolos locales embebidos en `lib_symbols` y reconstrucción de hierarchy instances.
+Las reparaciones incluyen `sym-lib-table` / `fp-lib-table`, `.kicad_prl` para KiCad 6/7/8, al degradar board/footprint nuevos la extracción de recursos 3D embebidos a `3D/` y la reescritura de URI de modelo `kicad-embed://...` a `${KIPRJMOD}/3D/...`, símbolos locales embebidos en `lib_symbols` y reconstrucción de hierarchy instances.
 
 ## Build
 
@@ -71,6 +71,18 @@ Las reparaciones incluyen `sym-lib-table` / `fp-lib-table`, `.kicad_prl` para Ki
 ```sh
 ./build.sh
 ```
+
+Opciones POSIX útiles:
+
+```sh
+./build.sh --clean
+./build.sh --config Release
+./build.sh --compiler g++-8
+./build.sh --static-runtime off
+./build.sh --zstd off
+```
+
+PowerShell también acepta `-Zstd auto|on|off`. El modo predeterminado `auto` compila el descompresor zstd vendored cuando existe `src/third_party/zstd`. Use `off` si la toolchain antigua no puede compilar esas fuentes C; en ese caso no se pueden extraer recursos 3D embebidos y el conversor avisa cuando debe eliminar referencias embedded model no soportadas.
 
 Los scripts leen `kicad_backport_sources.txt`, compilan con `g++` o `clang++` y copian el ejecutable a `dist/`. Si hace falta, usan fallback de `-std=c++17` a `-std=c++1z`.
 

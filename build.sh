@@ -5,12 +5,14 @@ CONFIG="${CONFIG:-Release}"
 TARGET="${TARGET:-native}"
 CXX="${CXX:-auto}"
 STATIC_RUNTIME="${STATIC_RUNTIME:-auto}"
+ZSTD="${ZSTD:-auto}"
 CLEAN=0
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 BUILD_ROOT="$ROOT/build"
 DIST_DIR="$ROOT/dist"
 SOURCE_LIST="$ROOT/kicad_backport_sources.txt"
+ZSTD_ROOT="$ROOT/src/third_party/zstd"
 
 usage() {
     cat <<'EOF'
@@ -25,10 +27,11 @@ Options:
   --target <native|linux-amd64|linux-arm64|linux-armhf|darwin-amd64|darwin-arm64>
   --compiler <command>            compiler command, default: g++ on Linux, clang++ on macOS
   --static-runtime <auto|on|off>  link libstdc++/libgcc statically when supported
+  --zstd <auto|on|off>            compile vendored zstd support, default: auto
   --help, -h                      show this help
 
-Environment mirrors the options: CONFIG, TARGET, CXX, STATIC_RUNTIME, CXXFLAGS,
-and LDFLAGS.
+Environment mirrors the options: CONFIG, TARGET, CXX, STATIC_RUNTIME, ZSTD,
+CXXFLAGS, CC, CFLAGS, and LDFLAGS.
 EOF
 }
 
@@ -65,6 +68,11 @@ while [ "$#" -gt 0 ]; do
             STATIC_RUNTIME="$2"
             shift 2
             ;;
+        --zstd)
+            need_value "$@"
+            ZSTD="$2"
+            shift 2
+            ;;
         --help|-h)
             usage
             exit 0
@@ -87,8 +95,16 @@ case "$STATIC_RUNTIME" in
     *) echo "Unsupported static runtime mode: $STATIC_RUNTIME" >&2; exit 2 ;;
 esac
 
+case "$ZSTD" in
+    auto|on|off) ;;
+    *) echo "Unsupported zstd mode: $ZSTD" >&2; exit 2 ;;
+esac
+
 has_cmd() {
-    command -v "$1" >/dev/null 2>&1
+    case "$1" in
+        */*) [ -x "$1" ] ;;
+        *) command -v "$1" >/dev/null 2>&1 ;;
+    esac
 }
 
 host_os() {
@@ -137,6 +153,72 @@ resolve_compiler() {
     fi
 }
 
+resolve_c_compiler() {
+    if [ -n "${CC:-}" ]; then
+        printf '%s\n' "$CC"
+        return
+    fi
+
+    cxx="$1"
+    dir=""
+    base="$cxx"
+
+    case "$cxx" in
+        */*)
+            dir="${cxx%/*}/"
+            base="${cxx##*/}"
+            ;;
+    esac
+
+    candidate=""
+    case "$base" in
+        *clang++*) candidate="${dir}$(printf '%s\n' "$base" | sed 's/clang++/clang/')" ;;
+        *g++*) candidate="${dir}$(printf '%s\n' "$base" | sed 's/g++/gcc/')" ;;
+        *c++*) candidate="${dir}$(printf '%s\n' "$base" | sed 's/c++/cc/')" ;;
+    esac
+
+    if [ -n "$candidate" ] && has_cmd "$candidate"; then
+        printf '%s\n' "$candidate"
+        return
+    fi
+
+    for fallback in gcc clang cc; do
+        if has_cmd "$fallback"; then
+            printf '%s\n' "$fallback"
+            return
+        fi
+    done
+
+    if [ -n "$candidate" ]; then
+        printf '%s\n' "$candidate"
+    else
+        printf '%s\n' cc
+    fi
+}
+
+zstd_available() {
+    [ -f "$ZSTD_ROOT/lib/zstd.h" ] && [ -f "$ZSTD_ROOT/lib/decompress/zstd_decompress.c" ]
+}
+
+resolve_zstd_enabled() {
+    case "$ZSTD" in
+        off)
+            return 1
+            ;;
+        on)
+            if zstd_available; then
+                return 0
+            fi
+
+            echo "Zstd support was requested, but vendored zstd sources are missing under $ZSTD_ROOT." >&2
+            exit 2
+            ;;
+        auto)
+            zstd_available
+            ;;
+    esac
+}
+
 config_flags() {
     case "$CONFIG" in
         Debug) printf '%s\n' "-O0 -g" ;;
@@ -174,6 +256,34 @@ EOF
     exit 2
 }
 
+select_c_standard_flag() {
+    compiler="$1"
+    probe_dir="${TMPDIR:-/tmp}/kicad-backport-c-std-$$"
+    mkdir -p "$probe_dir"
+    cat > "$probe_dir/probe.c" <<'EOF'
+#include <stddef.h>
+int main(void) { unsigned char data[1] = { 0 }; return data[0]; }
+EOF
+
+    for flag in -std=c99 -std=gnu99 ""; do
+        if [ -n "$flag" ]; then
+            if "$compiler" "$flag" -c "$probe_dir/probe.c" -o "$probe_dir/probe.o" >/dev/null 2>&1; then
+                rm -rf "$probe_dir"
+                printf '%s\n' "$flag"
+                return
+            fi
+        elif "$compiler" -c "$probe_dir/probe.c" -o "$probe_dir/probe.o" >/dev/null 2>&1; then
+            rm -rf "$probe_dir"
+            printf '%s\n' ""
+            return
+        fi
+    done
+
+    rm -rf "$probe_dir"
+    echo "$compiler cannot compile the required C mode probe." >&2
+    exit 2
+}
+
 supports_compile_flag() {
     compiler="$1"
     std_flag="$2"
@@ -183,6 +293,28 @@ supports_compile_flag() {
     printf '%s\n' 'int main() { return 0; }' > "$probe_dir/probe.cpp"
 
     if "$compiler" $std_flag "$flag" -Werror -c "$probe_dir/probe.cpp" -o "$probe_dir/probe.o" >/dev/null 2>&1; then
+        rm -rf "$probe_dir"
+        return 0
+    fi
+
+    rm -rf "$probe_dir"
+    return 1
+}
+
+supports_c_compile_flag() {
+    compiler="$1"
+    std_flag="$2"
+    flag="$3"
+    probe_dir="${TMPDIR:-/tmp}/kicad-backport-c-flag-$$"
+    mkdir -p "$probe_dir"
+    printf '%s\n' 'int main(void) { return 0; }' > "$probe_dir/probe.c"
+
+    if [ -n "$std_flag" ]; then
+        if "$compiler" "$std_flag" "$flag" -Werror -c "$probe_dir/probe.c" -o "$probe_dir/probe.o" >/dev/null 2>&1; then
+            rm -rf "$probe_dir"
+            return 0
+        fi
+    elif "$compiler" "$flag" -Werror -c "$probe_dir/probe.c" -o "$probe_dir/probe.o" >/dev/null 2>&1; then
         rm -rf "$probe_dir"
         return 0
     fi
@@ -220,6 +352,24 @@ size_compile_flags() {
     flags=""
     for flag in -ffunction-sections -fdata-sections; do
         if supports_compile_flag "$compiler" "$std_flag" "$flag"; then
+            flags="$flags $flag"
+        fi
+    done
+
+    printf '%s\n' "$flags"
+}
+
+size_c_compile_flags() {
+    compiler="$1"
+    std_flag="$2"
+
+    if [ "$CONFIG" = "Debug" ]; then
+        return
+    fi
+
+    flags=""
+    for flag in -ffunction-sections -fdata-sections; do
+        if supports_c_compile_flag "$compiler" "$std_flag" "$flag"; then
             flags="$flags $flag"
         fi
     done
@@ -268,12 +418,29 @@ quote_target_check() {
 compile_direct() {
     target="$1"
     compiler="$(resolve_compiler)"
+    zstd_enabled=0
+
+    if resolve_zstd_enabled; then
+        zstd_enabled=1
+    fi
+
+    c_compiler=""
+
+    if [ "$zstd_enabled" = "1" ]; then
+        c_compiler="$(resolve_c_compiler "$compiler")"
+    fi
+
     build_dir="$BUILD_ROOT/$target-direct"
     object_dir="$build_dir/obj"
     output_path="$DIST_DIR/kicad-backport-$target"
 
     if ! has_cmd "$compiler"; then
         echo "$compiler is required." >&2
+        exit 2
+    fi
+
+    if [ "$zstd_enabled" = "1" ] && ! has_cmd "$c_compiler"; then
+        echo "$c_compiler is required." >&2
         exit 2
     fi
 
@@ -291,7 +458,15 @@ compile_direct() {
     std_flag="$(select_cxx_standard_flag "$compiler")"
     size_cxxflags="$(size_compile_flags "$compiler" "$std_flag")"
     size_ldflags="$(size_link_flags "$compiler" "$std_flag")"
-    cxxflags="$std_flag -Wall -Wextra -Wpedantic -I$ROOT/include -I$ROOT/src $(config_flags) $size_cxxflags"
+    cxxflags="$std_flag -Wall -Wextra -Wpedantic -DKICAD_BACKPORT_WITH_ZSTD=$zstd_enabled -I$ROOT/include -I$ROOT/src $(config_flags) $size_cxxflags"
+    cflags=""
+
+    if [ "$zstd_enabled" = "1" ]; then
+        c_std_flag="$(select_c_standard_flag "$c_compiler")"
+        size_cflags="$(size_c_compile_flags "$c_compiler" "$c_std_flag")"
+        cflags="$c_std_flag -Wall -Wextra -DZSTD_DISABLE_ASM -DZSTD_NO_INTRINSICS -DZSTD_LEGACY_SUPPORT=0 -I$ROOT/src/third_party/zstd/lib -I$ROOT/src/third_party/zstd/lib/common -I$ROOT/src/third_party/zstd/lib/decompress $(config_flags) $size_cflags"
+    fi
+
     ldflags="$size_ldflags"
     static_flags=""
 
@@ -300,6 +475,12 @@ compile_direct() {
     fi
 
     echo "Compiler: $("$compiler" --version | sed -n '1p')"
+    echo "Zstd: $(if [ "$zstd_enabled" = "1" ]; then printf '%s' enabled; else printf '%s' disabled; fi)"
+
+    if [ "$zstd_enabled" = "1" ]; then
+        echo "C compiler: $("$c_compiler" --version | sed -n '1p')"
+    fi
+
     echo "Target: $target"
 
     objects=""
@@ -309,10 +490,36 @@ compile_direct() {
             ""|\#*) continue ;;
         esac
 
-        object="$object_dir/${source%.cpp}.o"
+        case "$source" in
+            *.cpp) object="$object_dir/${source%.cpp}.o" ;;
+            *.c) object="$object_dir/${source%.c}.o" ;;
+            *) echo "Unsupported source type: $source" >&2; exit 2 ;;
+        esac
         mkdir -p "$(dirname "$object")"
-        # shellcheck disable=SC2086
-        "$compiler" $cxxflags ${CXXFLAGS:-} -c "$ROOT/$source" -o "$object"
+
+        case "$source" in
+            *.cpp)
+                # shellcheck disable=SC2086
+                "$compiler" $cxxflags ${CXXFLAGS:-} -c "$ROOT/$source" -o "$object"
+                ;;
+            *.c)
+                case "$source" in
+                    src/third_party/zstd/*)
+                        if [ "$zstd_enabled" != "1" ]; then
+                            continue
+                        fi
+                        ;;
+                    *)
+                        if [ "$zstd_enabled" != "1" ]; then
+                            echo "C source requires zstd support to be enabled: $source" >&2
+                            exit 2
+                        fi
+                        ;;
+                esac
+                # shellcheck disable=SC2086
+                "$c_compiler" $cflags ${CFLAGS:-} -c "$ROOT/$source" -o "$object"
+                ;;
+        esac
         objects="$objects $object"
     done < "$SOURCE_LIST"
 
