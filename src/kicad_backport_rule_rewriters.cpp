@@ -1628,6 +1628,30 @@ int removeDirectChildrenByHead( SEXPR::NODE* aRoot, const std::string& aHead )
 }
 
 
+int removeDirectChildrenByHeads( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int removed = 0;
+    std::vector<std::unique_ptr<SEXPR::NODE>> kept;
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+    {
+        if( child && !child->IsAtom() && containsString( aHeads, child->HeadView() ) )
+        {
+            ++removed;
+            continue;
+        }
+
+        kept.push_back( std::move( child ) );
+    }
+
+    aRoot->Children = std::move( kept );
+    return removed;
+}
+
+
 int renameChildHeadInParents( SEXPR::NODE* aRoot, const std::set<std::string>& aParents,
                               const std::string& aFrom, const std::string& aTo )
 {
@@ -2060,6 +2084,30 @@ int downgradePCBPlotParamsBoolsToTrueFalse( SEXPR::NODE* aRoot )
 
     for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
         changed += downgradePCBPlotParamsBoolsToTrueFalse( child.get() );
+
+    return changed;
+}
+
+
+int downgradeKiCad6SchematicFillColors( SEXPR::NODE* aRoot )
+{
+    if( !aRoot || aRoot->IsAtom() )
+        return 0;
+
+    int changed = 0;
+
+    if( aRoot->HeadView() == "fill" )
+    {
+        SEXPR::NODE* type = aRoot->ChildList( "type" );
+
+        if( type && Lower( type->AtomAt( 1 ) ) == "color" && type->SetAtomAt( 1, "background", false ) )
+            ++changed;
+
+        changed += removeDirectChildrenByHead( aRoot, "color" );
+    }
+
+    for( std::unique_ptr<SEXPR::NODE>& child : aRoot->Children )
+        changed += downgradeKiCad6SchematicFillColors( child.get() );
 
     return changed;
 }

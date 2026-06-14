@@ -12,9 +12,9 @@
 | バージョン判定 | 近代 S-expression はトップレベルの `(version ...)` を読みます。`.kicad_pro` は `kicad-project-json`、legacy `.sch/.lib/.dcm/.pro` は legacy alias として報告されます。 |
 | KiCad 5/6 境界 | schematic、symbol library、project は KiCad 6 でファイルファミリーが切り替わります。KiCad 4/5 の `.sch/.lib/.pro` と KiCad 6+ の `.kicad_sch/.kicad_sym/.kicad_pro` は同じ構文ではありません。 |
 | PCB / footprint | KiCad 4-10 の board と footprint は S-expression として処理されます。差分は version anchor、ノード集合、フィールド構文です。 |
-| `.kicad_pro` | 近代 project JSON は target KiCad major ごとには書き換えません。KiCad 6+ では通常そのままコピーし、KiCad 5/4 では最小限の `.pro` を生成します。 |
+| `.kicad_pro` | 近代 project JSON は通常 target KiCad major ごとには書き換えません。KiCad 6/7/8 では project page layout の埋め込み worksheet URI `kicad-embed://...kicad_wks` を空にし、KiCad 5/4 では legacy `.pro` を生成します。 |
 | `.kicad_wks` | worksheet は検出と version 書き換えが可能ですが、現在の専用 downgrade 規則は限定的で、KiCad 4/5 legacy writer はありません。 |
-| `.kicad_dru` | コード上は検出でき、固定 anchor `20200610` を持ちますが、この文書の主要なユーザー可視フォーマット表には含めません。 |
+| `.kicad_dru` | design-rule file は検出されます。同じ固定 `.kicad_dru` anchor を target がサポートする場合だけコピーし、サポートしない target では warning とともに skip します。 |
 
 ## 実装モデル
 
@@ -24,7 +24,7 @@
 | 種別判定 | `DetectKind()` は root token を優先し、拡張子を fallback とします。 | 正しい root を持つファイルは名前が通常と違っても扱えます。 |
 | target 解決 | `ResolveTargetVersion()` は KiCad alias をファイル種別ごとの format version に変換します。 | KiCad の 1 つの release が全ファイルで同じ version を使うわけではありません。 |
 | 出力拡張子 | `withTargetFamilyExtension()` は KiCad 5/6 境界で `.sch/.lib/.pro` と `.kicad_sch/.kicad_sym/.kicad_pro` を切り替えます。 | 5/6 変換は単なる `(version ...)` 編集ではありません。 |
-| 同一 version | S-expression の source と target が同じ場合はコピーまたは無変更です。 | 余分な整形や規則適用を避けます。 |
+| 同一 version | S-expression の source と target が同じ場合はコピーまたは無変更です。project 変換では KiCad 6/7/8 向けに互換性のない埋め込み worksheet URI を空にする場合があります。 | 余分な整形を避けつつ、既知の project load failure を回避します。 |
 | upgrade | source version が target より古い場合、`ApplyUpgradeRules()` が保守的な構文正規化を行います。 | 新しい設計意図は自動生成しません。 |
 | downgrade | source version が target より新しい場合、`ApplyDowngradeRules()` が削除、改名、平坦化、近似を行います。 | 古い KiCad parser が未知ノードを読まないようにします。 |
 | 書き出し | `ensureVersion()` が version を設定し、S-expression は `SEXPR::Format()` で出力します。 | JSON と legacy text は専用 writer または raw path で扱います。 |
@@ -47,14 +47,15 @@
 
 | ファイル | 変換動作 | 注意点 |
 | --- | --- | --- |
-| `.kicad_pro` | KiCad 6+ target では raw JSON コピー、KiCad 5/4 では最小 `.pro` を生成。 | target major ごとの JSON 再構築はしません。 |
+| `.kicad_pro` | KiCad 6+ target では raw JSON コピー。project 変換で KiCad 6/7/8 に出力する場合、埋め込み worksheet page-layout URI を空にします。KiCad 5/4 では最小 legacy `.pro` を生成。 | target major ごとの完全な JSON 再構築はしません。 |
 | legacy `.pro` | KiCad 6+ では最小 `.kicad_pro` JSON を生成。 | 認識できる legacy setting と library 名だけを保持します。 |
-| `.kicad_sch` | KiCad 5/4 では legacy `.sch` writer。KiCad 6+ では S-expression rules。 | 現代の property、instance、複雑な object は legacy で損失します。 |
+| `.kicad_sch` | KiCad 5/4 では legacy `.sch` writer。KiCad 6+ では S-expression rules。project 変換では cache library 参照を追加します。 | 現代の property、instance、複雑な object は legacy で損失します。複数行 text は escaped `\n` を含む 1 行として出力します。 |
 | legacy `.sch` | KiCad 6+ では `.kicad_sch` に変換。KiCad 5/4 では header を書き換えます。 | legacy の非 wire drawing は完全には mapping されません。 |
-| `.kicad_sym` | KiCad 5/4 では `.lib` と `.dcm` を出力。 | 現代 symbol property、graphics、nested symbol は近似されます。 |
+| `.kicad_sym` | KiCad 5/4 では `.lib` と `.dcm` を出力。project 変換では生成した `.lib` を `<project>-cache.lib` にもコピーします。 | 現代 symbol property、graphics、nested symbol は近似されます。legacy `DEF` reference は `U`, `BT`, `#PWR` などの prefix を使います。 |
 | legacy `.lib/.dcm` | KiCad 6+ では `.kicad_sym` を生成。 | `.dcm` 単体は symbol skeleton になり、文書 metadata は完全ではありません。 |
 | `.kicad_pcb/.kicad_mod` | すべての定義済み target で S-expression のまま version と node/field を rewrite。 | 対象にない geometry/electrical/manufacturing/cache field は削除または近似されます。 |
 | `.kicad_wks` | KiCad 6+ では version rewrite と限定的な worksheet rule。 | KiCad 4/5 legacy worksheet writer はありません。 |
+| `.kicad_dru` | target が同じ固定 design-rule anchor をサポートする場合だけコピー。 | design-rule format 変換はありません。未対応 target では warning とともに skip します。 |
 
 ## 主な downgrade 方針
 
@@ -66,6 +67,16 @@
 | 古い property layout | property を移動し、ID を追加または削除します。 | property hide の位置、standard property id。 |
 | source に新しい意味がない | 新機能 object は生成しません。 | padstack、variants、component classes、barcodes は自動生成されません。 |
 
+## 現在の互換性修正
+
+| 領域 | 動作 |
+| --- | --- |
+| KiCad 6/7/8 project worksheet | `kicad-embed://...kicad_wks` への page-layout reference を空にし、KiCad 6/7/8 が未対応の埋め込み worksheet path を読み込もうとする問題を避けます。 |
+| KiCad 6 schematic | root `uuid`、配置済み symbol pin UUID block、未対応の root-level drawing primitive (`rectangle`, `circle`, `arc`, `polyline`, `bezier`)、互換性のない fill color を削除または互換値へ戻します。 |
+| KiCad 4/5 legacy schematic | 複数行 text は 1 行の escaped `\n` として書きます。project 変換では `<project>-cache.lib` を生成し、`LIBS:<project>-cache` を追加します。 |
+| KiCad 4/5 legacy symbol library | `DEF` reference field は `U1` のような instance reference ではなく prefix として出力します。 |
+| PCB/footprint upgrade | footprint `attr dnp` は `attr` atom のまま保持し、`(dnp yes/no)` へ展開しません。 |
+
 ## project directory 変換
 
 | 処理 | 実装 |
@@ -75,6 +86,8 @@
 | skip 対象 | VCS、history、backup、archive、gerber/fabrication/output/plot/BOM/assembly/vendor output。 |
 | 拡張子変換 | KiCad 5/4 target では `.kicad_sch/.kicad_sym/.kicad_pro` を `.sch/.lib/.pro` へ、KiCad 6+ では逆方向へ変換します。 |
 | `.dcm` | KiCad 6+ target で対応する `.lib` がある場合、`.dcm` は単独変換しません。 |
+| `.kicad_dru` | `.kicad_dru` 非対応 target では skip し、同じ design-rule anchor の target ではコピーします。 |
+| project worksheet refs | KiCad 6/7/8 では `.kicad_pro` 内の埋め込み worksheet page-layout reference を空にします。 |
 | library table | `sym-lib-table` / `fp-lib-table` を target family に合わせて正規化します。 |
 | schematic support | KiCad 6+ target では project-local symbol を schematic `lib_symbols` に embed し、hierarchy instances を再構築します。 |
-
+| legacy schematic cache | KiCad 5/4 では `Library.lib` を `<project>-cache.lib` にコピーし、生成した各 `.sch` に `LIBS:<project>-cache` を追加します。 |

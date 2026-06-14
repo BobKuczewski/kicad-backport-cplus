@@ -74,6 +74,7 @@ struct BOARD_FAST_COUNTS
 int removeDescendantsByHead( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads );
 int removeChildrenFromParents( SEXPR::NODE* aRoot, const std::set<std::string>& aParents,
                                const std::set<std::string>& aChildren );
+int removeDirectChildrenByHeads( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads );
 std::vector<int> removeChildrenFromParentsBatch( SEXPR::NODE* aRoot,
                                                  const std::vector<CHILD_REMOVAL_RULE>& aRules );
 BOARD_FAST_COUNTS applyBoardFastVisitor( SEXPR::NODE* aRoot, const BOARD_FAST_OPTIONS& aOptions,
@@ -105,6 +106,7 @@ int ensureLegacyPropertyIds( SEXPR::NODE* aRoot );
 int ensureKiCad6StandardPropertyIds( SEXPR::NODE* aRoot );
 int normalizeKiCad6SheetProperties( SEXPR::NODE* aRoot );
 int movePropertyHideToEffects( SEXPR::NODE* aRoot );
+int downgradeKiCad6SchematicFillColors( SEXPR::NODE* aRoot );
 int downgradeTentingToLegacyAtoms( SEXPR::NODE* aRoot );
 int downgradeBooleanPresenceNodes( SEXPR::NODE* aRoot, const std::set<std::string>& aHeads );
 int downgradeFontStyleListsToAtoms( SEXPR::NODE* aRoot );

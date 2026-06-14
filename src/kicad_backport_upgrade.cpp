@@ -659,12 +659,6 @@ std::vector<std::string> ApplyUpgradeRules( DOCUMENT& aDocument, int aTarget )
         n = expandFontStyleAtoms( aDocument.Root.get() );
         appendWarning( warnings, n, "upgraded PCB font style atoms to boolean lists" );
 
-        if( aTarget >= 20230410 )
-        {
-            n = expandPresenceAtomsInParents( aDocument.Root.get(), { "attr" }, { "dnp" } );
-            appendWarning( warnings, n, "upgraded footprint dnp atoms to boolean lists" );
-        }
-
         n = normalizeBoolValues( aDocument.Root.get(), boolHeads );
         appendWarning( warnings, n, "normalized PCB boolean values for KiCad 7 syntax" );
 

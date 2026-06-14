@@ -325,6 +325,115 @@ std::string replaceTrailingText( const std::string& aValue, const std::string& a
 }
 
 
+int ensureLegacySchematicLibraryLine( const FS::path& aSchematic, const std::string& aLibrary )
+{
+    std::string text = ReadTextFile( aSchematic );
+    std::string line = "LIBS:" + aLibrary;
+
+    if( text.find( line + "\n" ) != std::string::npos
+        || text.find( line + "\r\n" ) != std::string::npos )
+    {
+        return 0;
+    }
+
+    size_t insertAt = std::string::npos;
+    size_t pos = 0;
+
+    while( pos < text.size() )
+    {
+        size_t lineEnd = text.find( '\n', pos );
+        size_t next = lineEnd == std::string::npos ? text.size() : lineEnd + 1;
+        std::string current = text.substr( pos, lineEnd == std::string::npos
+                                                ? std::string::npos : lineEnd - pos );
+
+        if( !current.empty() && current.back() == '\r' )
+            current.pop_back();
+
+        if( StartsWith( current, "LIBS:" ) )
+            insertAt = next;
+        else if( insertAt != std::string::npos )
+            break;
+
+        if( lineEnd == std::string::npos )
+            break;
+
+        pos = next;
+    }
+
+    if( insertAt == std::string::npos )
+    {
+        size_t headerEnd = text.find( '\n' );
+        insertAt = headerEnd == std::string::npos ? text.size() : headerEnd + 1;
+    }
+
+    text.insert( insertAt, line + "\n" );
+    WriteTextFile( aSchematic, text );
+    return 1;
+}
+
+
+FILE_REPORT ensureLegacySchematicCacheLibrary( const FS::path& aProjectDir,
+                                               const std::vector<PROJECT_COPY_ENTRY>& aCopied )
+{
+    FILE_REPORT report;
+    report.Path = aProjectDir.string();
+    report.OutputPath = aProjectDir.string();
+    report.Kind = "legacy-symbol-library";
+    report.SourceKind = "legacy-symbol-library";
+    report.TargetKind = "legacy-symbol-library";
+    report.SourceVersion = "legacy-lib";
+    report.TargetVersion = "legacy-lib";
+
+    FS::path projectPath;
+
+    for( const PROJECT_COPY_ENTRY& entry : aCopied )
+    {
+        if( Lower( entry.Output.extension().string() ) == ".pro"
+            && entry.Output.parent_path() == aProjectDir )
+        {
+            projectPath = entry.Output;
+            break;
+        }
+    }
+
+    if( projectPath.empty() )
+        return report;
+
+    FS::path libraryPath = aProjectDir / "Library.lib";
+
+    if( !FS::exists( libraryPath ) )
+        return report;
+
+    std::string cacheName = projectPath.stem().string() + "-cache";
+    FS::path cachePath = aProjectDir / ( cacheName + ".lib" );
+    FS::copy_file( libraryPath, cachePath, FS::copy_options::overwrite_existing );
+    report.Changed = true;
+    report.Path = cachePath.string();
+    report.OutputPath = cachePath.string();
+    report.Warnings.push_back( "created legacy schematic cache library " + cachePath.filename().string() );
+
+    int schematicChanges = 0;
+
+    std::error_code error;
+
+    for( FS::directory_iterator it( aProjectDir, error ), end; it != end; ++it )
+    {
+        if( error )
+            break;
+
+        const FS::directory_entry& entry = *it;
+
+        if( entry.is_regular_file() && Lower( entry.path().extension().string() ) == ".sch" )
+            schematicChanges += ensureLegacySchematicLibraryLine( entry.path(), cacheName );
+    }
+
+    if( schematicChanges > 0 )
+        report.Warnings.push_back( "added legacy schematic cache library references" );
+
+    return report;
+}
+
+
 int normalizeLegacySymbolLibraryTableEntries( SEXPR::NODE* aRoot )
 {
     if( !aRoot || aRoot->IsAtom() || aRoot->HeadView() != "sym_lib_table" )
@@ -2201,6 +2310,67 @@ std::string extractJsonStringField( const std::string& aText, const std::string&
 }
 
 
+int clearLegacyEmbeddedPageLayoutRefs( std::string& aText )
+{
+    int changed = 0;
+    std::string needle = "\"page_layout_descr_file\"";
+    size_t pos = 0;
+
+    while( ( pos = aText.find( needle, pos ) ) != std::string::npos )
+    {
+        size_t colon = aText.find( ':', pos + needle.size() );
+
+        if( colon == std::string::npos )
+            break;
+
+        size_t quote = aText.find( '"', colon + 1 );
+
+        if( quote == std::string::npos )
+            break;
+
+        size_t valueStart = quote + 1;
+        size_t valueEnd = valueStart;
+        bool escape = false;
+
+        for( ; valueEnd < aText.size(); ++valueEnd )
+        {
+            char ch = aText[valueEnd];
+
+            if( escape )
+            {
+                escape = false;
+            }
+            else if( ch == '\\' )
+            {
+                escape = true;
+            }
+            else if( ch == '"' )
+            {
+                break;
+            }
+        }
+
+        if( valueEnd >= aText.size() )
+            break;
+
+        std::string value = aText.substr( valueStart, valueEnd - valueStart );
+
+        if( StartsWith( value, "kicad-embed://" ) && EndsWith( Lower( value ), ".kicad_wks" ) )
+        {
+            aText.erase( valueStart, valueEnd - valueStart );
+            ++changed;
+            pos = valueStart + 1;
+        }
+        else
+        {
+            pos = valueEnd + 1;
+        }
+    }
+
+    return changed;
+}
+
+
 std::vector<std::string> extractJsonArrayItems( const std::string& aText,
                                                 const std::string& aName )
 {
@@ -2477,6 +2647,41 @@ void CONVERTER::ensureLegacyProjectLocalSettings( const FS::path& aPath,
 }
 
 
+FILE_REPORT CONVERTER::ensureLegacyProjectPageLayoutRefs( const FS::path& aPath,
+                                                          const std::string& aTargetSuffix ) const
+{
+    FILE_REPORT report;
+    report.Path = aPath.string();
+    report.InputPath = aPath.string();
+    report.OutputPath = aPath.string();
+    report.Kind = "project";
+    report.SourceKind = "project";
+    report.TargetKind = "project";
+    report.SourceVersion = "kicad-project-json";
+    report.TargetVersion = "kicad-project-json";
+
+    if( aTargetSuffix != "V6" && aTargetSuffix != "V7" && aTargetSuffix != "V8" )
+        return report;
+
+    if( Lower( aPath.extension().string() ) != ".kicad_pro" || !FS::exists( aPath ) )
+        return report;
+
+    std::string text = ReadTextFile( aPath );
+    int changed = clearLegacyEmbeddedPageLayoutRefs( text );
+
+    if( changed > 0 )
+    {
+        WriteTextFile( aPath, text );
+        report.Changed = true;
+        report.Warnings.push_back(
+                "cleared embedded worksheet page layout references for KiCad "
+                + aTargetSuffix.substr( 1 ) + " project compatibility" );
+    }
+
+    return report;
+}
+
+
 int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
 {
     CLOCK::time_point convertStart = CLOCK::now();
@@ -2542,6 +2747,14 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
                                                       ReplaceExtension( entry.Source, ".kicad_prl" ) );
                 else if( Lower( entry.Output.extension().string() ) == ".kicad_prl" )
                     ensureLegacyProjectLocalSettings( entry.Output, suffix, entry.Source );
+                else if( Lower( entry.Output.extension().string() ) == ".kicad_pro" )
+                {
+                    FILE_REPORT projectReport = ensureLegacyProjectPageLayoutRefs( entry.Output,
+                                                                                   suffix );
+
+                    if( projectReport.Changed || !projectReport.Warnings.empty() )
+                        reports.push_back( projectReport );
+                }
             }
         }
 
@@ -2597,6 +2810,25 @@ int CONVERTER::runConvert( const std::vector<std::string>& aArgs )
                                                  aliasWarnings.end() );
                     reports.push_back( tableReport );
                 }
+            }
+        }
+
+        if( targetMajor <= 5 )
+        {
+            std::set<FS::path> projectDirs;
+
+            for( const PROJECT_COPY_ENTRY& entry : copied )
+            {
+                if( Lower( entry.Output.extension().string() ) == ".pro" )
+                    projectDirs.insert( entry.Output.parent_path() );
+            }
+
+            for( const FS::path& projectDir : projectDirs )
+            {
+                FILE_REPORT cacheReport = ensureLegacySchematicCacheLibrary( projectDir, copied );
+
+                if( cacheReport.Changed || !cacheReport.Warnings.empty() )
+                    reports.push_back( cacheReport );
             }
         }
     }

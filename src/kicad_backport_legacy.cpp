@@ -152,6 +152,15 @@ std::string legacyQuote( const std::string& aValue )
 
     for( char ch : aValue )
     {
+        if( ch == '\r' )
+            continue;
+
+        if( ch == '\n' )
+        {
+            out += "\\n";
+            continue;
+        }
+
         if( ch == '\\' || ch == '"' )
             out.push_back( '\\' );
 
@@ -159,6 +168,26 @@ std::string legacyQuote( const std::string& aValue )
     }
 
     out.push_back( '"' );
+    return out;
+}
+
+
+std::string legacyTextLine( const std::string& aValue )
+{
+    std::string out;
+    out.reserve( aValue.size() );
+
+    for( char ch : aValue )
+    {
+        if( ch == '\r' )
+            continue;
+
+        if( ch == '\n' )
+            out += "\\n";
+        else
+            out.push_back( ch );
+    }
+
     return out;
 }
 
@@ -3561,7 +3590,7 @@ std::string sexprSchematicToLegacy( const DOCUMENT& aDocument, int aTargetMajor,
                     out << " " << sexprLabelShapeToLegacy( childAtomOrEmpty( child.get(), "shape" ) );
 
                 out << " ~ 0\n";
-                out << child->AtomAt( 1 ) << "\n";
+                out << legacyTextLine( child->AtomAt( 1 ) ) << "\n";
                 ++labelCount;
             }
             else if( child->HeadView() == "sheet" )
@@ -3937,8 +3966,7 @@ std::string sexprSymbolLibraryToLegacy( const DOCUMENT& aDocument, int aTargetMa
         std::string name = sanitizeSymbolName( symbol->AtomAt( 1 ) );
         std::string reference = propertyValue( symbol, "Reference" );
 
-        if( reference.empty() )
-            reference = libraryReferencePrefix( name );
+        reference = legacyLibraryReferencePrefix( reference, name );
 
         std::string showPinNumbers = symbolPinVisibilityFlag( symbol, "pin_numbers" );
         std::string showPinNames = symbolPinVisibilityFlag( symbol, "pin_names" );
@@ -4037,6 +4065,14 @@ std::string sexprProjectToLegacy( const DOCUMENT& aDocument, std::vector<std::st
     out << "version=" << ( meta.Settings["version"].empty() ? "1" : meta.Settings["version"] ) << "\n";
     out << "last_client="
         << ( meta.Settings["last_client"].empty() ? "kicad-backport" : meta.Settings["last_client"] ) << "\n";
+    out << "\n";
+    out << "[general]\n";
+    out << "version=1\n";
+    out << "RootSch=" << aDocument.Path.stem().string() << ".sch\n";
+    out << "BoardNm=" << aDocument.Path.stem().string() << ".kicad_pcb\n";
+    out << "\n";
+    out << "[eeschema]\n";
+    out << "version=1\n";
     out << "LibDir=" << meta.Settings["LibDir"] << "\n";
     out << "NetIExt=" << ( meta.Settings["NetIExt"].empty() ? "net" : meta.Settings["NetIExt"] ) << "\n";
     out << "CmpExt=" << ( meta.Settings["CmpExt"].empty() ? ".cmp" : meta.Settings["CmpExt"] ) << "\n";
@@ -4046,6 +4082,8 @@ std::string sexprProjectToLegacy( const DOCUMENT& aDocument, std::vector<std::st
         << ( meta.Settings["SubpartIdSeparator"].empty() ? "0" : meta.Settings["SubpartIdSeparator"] ) << "\n";
     out << "SubpartFirstId="
         << ( meta.Settings["SubpartFirstId"].empty() ? "65" : meta.Settings["SubpartFirstId"] ) << "\n";
+    out << "\n";
+    out << "[eeschema/libraries]\n";
 
     for( size_t i = 0; i < meta.Libraries.size(); ++i )
         out << "LibName" << ( i + 1 ) << "=" << meta.Libraries[i] << "\n";

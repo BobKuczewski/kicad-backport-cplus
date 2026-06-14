@@ -111,6 +111,10 @@ private:
     void ensureLegacyProjectLocalSettings( const FS::path& aPath,
                                            const std::string& aTargetSuffix,
                                            const FS::path& aSourcePath = {} ) const;
+
+    // Removes project-level embedded worksheet URI references unsupported by KiCad 6/7/8.
+    FILE_REPORT ensureLegacyProjectPageLayoutRefs( const FS::path& aPath,
+                                                   const std::string& aTargetSuffix ) const;
 };
 
 // Detects KiCad document type from the root S-expression or file extension.

@@ -427,9 +427,16 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
                    [&]()
                    {
                        return removeChildrenFromParents( aDocument.Root.get(), { "pin" },
-                                               { "hide" } );
+                                                { "hide" } );
                    },
                    "removed KiCad 6-incompatible symbol pin hide fields" );
+
+        applyWhen( aTarget <= 20211014,
+                   [&]()
+                   {
+                       return downgradeKiCad6SchematicFillColors( aDocument.Root.get() );
+                   },
+                   "downgraded symbol library fill colors for KiCad 6 parsers" );
 
         // Add missing ids before moving property visibility into effects.
         if( aTarget < 20241209 )
@@ -481,6 +488,9 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
 
         applyWhen( aTarget < 20231120, [&]() { return removeDirectChildrenByHead( aDocument.Root.get(), "generator_version" ); },
                    "removed schematic generator_version fields" );
+
+        applyWhen( aTarget < 20260306, [&]() { return removeDirectChildrenByHead( aDocument.Root.get(), "uuid" ); },
+                   "removed schematic root UUID fields" );
 
         applyWhen( aTarget < 20260326, [&]() { return removeDescendantsByHead( aDocument.Root.get(), { "locked" } ); },
                    "removed schematic locked fields introduced after target version" );
@@ -611,16 +621,39 @@ std::vector<std::string> ApplyDowngradeRules( DOCUMENT& aDocument, int aTarget )
         applyWhen( aTarget <= 20211123,
                    [&]()
                    {
-                       return ensureKiCad6StandardPropertyIds( aDocument.Root.get() );
+                       return removeDirectChildrenByHeads( aDocument.Root.get(),
+                                            { "rectangle", "circle", "arc", "polyline",
+                                              "bezier" } );
                    },
-                   "added KiCad 6 standard schematic property ids" );
+                   "removed KiCad 6-incompatible schematic drawing primitives" );
 
         applyWhen( aTarget <= 20211123,
                    [&]()
                    {
+                       return downgradeKiCad6SchematicFillColors( aDocument.Root.get() );
+                   },
+                   "downgraded schematic fill colors for KiCad 6 parsers" );
+
+        applyWhen( aTarget <= 20211123,
+                   [&]()
+                   {
+                       return ensureKiCad6StandardPropertyIds( aDocument.Root.get() );
+                   },
+                   "added KiCad 6 standard schematic property ids" );
+
+        applyWhen( aTarget <= 20230121,
+                   [&]()
+                   {
                        return normalizeKiCad6SheetProperties( aDocument.Root.get() );
                    },
-                   "normalized KiCad 6 sheet property names and ids" );
+                   "normalized KiCad 6/7 sheet property names and ids" );
+
+        applyWhen( aTarget <= 20230121,
+                   [&]()
+                   {
+                       return removePlacedSymbolPinUuidBlocks( aDocument.Root.get() );
+                   },
+                   "removed placed schematic symbol pin UUID blocks" );
 
         applyWhen( aTarget <= 20211123,
                    [&]()

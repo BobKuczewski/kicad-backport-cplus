@@ -12,9 +12,9 @@ Ce document décrit les différences de formats KiCad réellement prises en char
 | Détection de version | Les fichiers S-expression modernes lisent le champ top-level `(version ...)`. `.kicad_pro` est rapporté comme `kicad-project-json`. Les fichiers legacy `.sch/.lib/.dcm/.pro` utilisent des alias legacy. |
 | Frontière KiCad 5/6 | KiCad 6 est la frontière de famille pour les schémas, bibliothèques de symboles et projets. Les `.sch/.lib/.pro` KiCad 4/5 et les `.kicad_sch/.kicad_sym/.kicad_pro` KiCad 6+ ne partagent pas la même syntaxe. |
 | PCB et empreintes | Les boards et footprints KiCad 4-10 sont traités comme des S-expressions. Les différences importantes sont les ancres de version, les ensembles de nœuds et la syntaxe des champs. |
-| `.kicad_pro` | Le JSON projet moderne n’est pas réécrit par version majeure cible. Pour KiCad 6+ il est normalement copié brut ; pour KiCad 5/4 un `.pro` minimal est généré. |
+| `.kicad_pro` | Le JSON projet moderne n’est généralement pas réécrit par version majeure cible. Pour KiCad 6/7/8, les URI worksheet embarquées `kicad-embed://...kicad_wks` des page layouts projet sont vidées ; pour KiCad 5/4 un `.pro` legacy est généré. |
 | `.kicad_wks` | Les worksheets sont détectées et leur version peut être réécrite. Il existe seulement une petite règle de downgrade worksheet, sans writer legacy KiCad 4/5. |
-| `.kicad_dru` | Le code peut le détecter avec l’ancre fixe `20200610`, mais il n’est pas listé comme famille principale visible utilisateur dans ce document. |
+| `.kicad_dru` | Les fichiers de règles de conception sont détectés et copiés seulement si la cible supporte la même ancre `.kicad_dru` fixe. Les cibles sans support `.kicad_dru` ignorent le fichier avec un warning. |
 
 ## Modèle d’implémentation
 
@@ -24,7 +24,7 @@ Ce document décrit les différences de formats KiCad réellement prises en char
 | Détection du type | `DetectKind()` privilégie le root token et utilise l’extension comme fallback. | Un fichier S-expression correctement raciné peut être accepté même avec un nom atypique. |
 | Résolution cible | `ResolveTargetVersion()` mappe chaque alias KiCad vers une version propre à chaque type de fichier. | Une release KiCad n’a pas une version de format unique pour tous les fichiers. |
 | Extension de sortie | `withTargetFamilyExtension()` bascule `.sch/.lib/.pro` et `.kicad_sch/.kicad_sym/.kicad_pro` à la frontière KiCad 5/6. | La conversion 5/6 n’est pas une simple modification de `(version ...)`. |
-| Même version | Si les versions S-expression source et cible sont identiques, le fichier est copié ou laissé inchangé. | Évite les réécritures inutiles. |
+| Même version | Si les versions S-expression source et cible sont identiques, le fichier est copié ou laissé inchangé. Les conversions projet peuvent tout de même vider les URI worksheet embarquées incompatibles pour KiCad 6/7/8. | Évite les réécritures inutiles tout en corrigeant des échecs connus de chargement projet. |
 | Upgrade | Si la source est plus ancienne que la cible, `ApplyUpgradeRules()` effectue une normalisation conservatrice. | Aucune intention de conception nouvelle n’est inventée. |
 | Downgrade | Si la source est plus récente que la cible, `ApplyDowngradeRules()` supprime, renomme, aplatit ou approxime. | Les anciens parseurs KiCad ne rencontrent pas de nœuds inconnus. |
 
@@ -46,14 +46,15 @@ Ce document décrit les différences de formats KiCad réellement prises en char
 
 | Fichier | Comportement | Limite |
 | --- | --- | --- |
-| `.kicad_pro` | Copie JSON brute pour KiCad 6+, `.pro` minimal pour KiCad 5/4. | Pas de réécriture JSON par version majeure cible. |
+| `.kicad_pro` | Copie JSON brute pour KiCad 6+ ; en conversion projet vers KiCad 6/7/8, les URI page-layout worksheet embarquées sont vidées. `.pro` legacy minimal pour KiCad 5/4. | Pas de réécriture JSON complète par version majeure cible. |
 | legacy `.pro` | Génère un `.kicad_pro` JSON minimal pour KiCad 6+. | Préserve seulement les settings legacy et noms de bibliothèques reconnus. |
-| `.kicad_sch` | Writer legacy `.sch` pour KiCad 5/4 ; règles S-expression pour KiCad 6+. | Les propriétés, instances et objets modernes complexes sont avec perte en legacy. |
+| `.kicad_sch` | Writer legacy `.sch` pour KiCad 5/4 ; règles S-expression pour KiCad 6+. Les conversions projet ajoutent une référence de cache library. | Les propriétés, instances et objets modernes complexes sont avec perte en legacy ; le texte multiligne est écrit sur une ligne avec `\n` échappé. |
 | legacy `.sch` | Conversion vers `.kicad_sch` pour KiCad 6+ ; réécriture d’en-tête pour KiCad 5/4. | Les dessins legacy non-wire ne sont pas entièrement mappés. |
-| `.kicad_sym` | Écrit `.lib` et `.dcm` pour KiCad 5/4. | Propriétés, graphismes et symboles imbriqués modernes sont approximés. |
+| `.kicad_sym` | Écrit `.lib` et `.dcm` pour KiCad 5/4 ; les conversions projet copient aussi la `.lib` générée vers `<project>-cache.lib`. | Propriétés, graphismes et symboles imbriqués modernes sont approximés ; les références legacy `DEF` utilisent des préfixes comme `U`, `BT` ou `#PWR`. |
 | legacy `.lib/.dcm` | Génère `.kicad_sym` pour KiCad 6+. | `.dcm` seul devient un squelette de symboles, metadata documentaire incomplète. |
 | `.kicad_pcb/.kicad_mod` | Reste S-expression ; réécrit version, nœuds et champs. | Champs géométriques, électriques, fabrication ou cache non supportés sont supprimés ou approximés. |
 | `.kicad_wks` | Version rewrite et règle worksheet limitée pour KiCad 6+. | Pas de writer worksheet legacy KiCad 4/5. |
+| `.kicad_dru` | Copié seulement si la cible supporte la même ancre fixe de règles de conception. | Pas de conversion du format de règles ; les cibles non supportées ignorent le fichier avec warning. |
 
 ## Politique de downgrade
 
@@ -65,6 +66,16 @@ Ce document décrit les différences de formats KiCad réellement prises en char
 | Layout de propriétés ancien | Déplacement de propriété, ajout ou suppression d’ID. | Position de property hide, standard property id. |
 | Pas de sémantique nouvelle dans la source | Aucun nouvel objet fonctionnel n’est créé. | Pas de padstack, variants, component classes ni barcodes automatiques. |
 
+## Correctifs de compatibilité actuels
+
+| Domaine | Comportement |
+| --- | --- |
+| Worksheets projet KiCad 6/7/8 | Les références page-layout vers `kicad-embed://...kicad_wks` sont vidées pour éviter que KiCad 6/7/8 charge des chemins worksheet embarqués non supportés. |
+| Schémas KiCad 6 | Le root `uuid`, les blocs UUID de pins de symboles placés, les primitives de dessin root-level non supportées (`rectangle`, `circle`, `arc`, `polyline`, `bezier`) et les fill colors incompatibles sont supprimés ou ramenés à des valeurs compatibles. |
+| Schémas legacy KiCad 4/5 | Le texte multiligne est écrit comme `\n` échappé sur une seule ligne ; les conversions projet créent `<project>-cache.lib` et ajoutent `LIBS:<project>-cache`. |
+| Bibliothèques symboles legacy KiCad 4/5 | Les champs de référence `DEF` sont écrits comme préfixes, pas comme références d’instance telles que `U1`. |
+| Upgrade PCB/footprint | Le `attr dnp` de footprint reste un atome `attr` ; il n’est pas étendu en `(dnp yes/no)`. |
+
 ## Conversion de projet
 
 | Traitement | Implémentation |
@@ -74,6 +85,8 @@ Ce document décrit les différences de formats KiCad réellement prises en char
 | Dossiers ignorés | VCS, history, backup, archive, gerber/fabrication/output/plot/BOM/assembly/vendor output. |
 | Extensions | KiCad 5/4 mappe `.kicad_sch/.kicad_sym/.kicad_pro` vers `.sch/.lib/.pro`; KiCad 6+ fait l’inverse. |
 | `.dcm` | Si un `.lib` associé existe pour une cible KiCad 6+, `.dcm` n’est pas converti séparément. |
+| `.kicad_dru` | Ignoré pour les cibles sans support `.kicad_dru` ; copié quand l’ancre de règles de conception est identique. |
+| Références worksheet projet | Pour KiCad 6/7/8, les références page-layout worksheet embarquées sont vidées dans `.kicad_pro`. |
 | Library tables | `sym-lib-table` / `fp-lib-table` sont normalisées pour la famille cible. |
 | Support schematic | Pour KiCad 6+, les symboles locaux sont intégrés dans `lib_symbols` et les hierarchy instances sont reconstruites. |
-
+| Cache schematic legacy | Pour KiCad 5/4, `Library.lib` est copié vers `<project>-cache.lib` et chaque `.sch` généré reçoit `LIBS:<project>-cache`. |
